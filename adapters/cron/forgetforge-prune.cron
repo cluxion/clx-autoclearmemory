@@ -1,0 +1,3 @@
+# Install: crontab -e and add this line (adjust forgetforge path if needed)
+# Runs pruner every 6 hours
+0 */6 * * * /usr/bin/env forgetforge prune >> "$HOME/.forgetforge/prune.log" 2>&1

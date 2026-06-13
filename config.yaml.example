@@ -1,0 +1,9 @@
+# ~/.forgetforge/config.yaml
+
+pruner:
+  interval_hours: 6
+
+thresholds:
+  cold_retention: 0.40
+  hot_window_days: 7
+  no_recall_archive_days: 180

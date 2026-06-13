@@ -1,0 +1,9 @@
+# Codex 연동 참고
+# 연결된 AI가 터미널에서 forgetforge CLI를 호출합니다.
+# 규칙은 adapters/claude/skills/forgetforge/SKILL.md 와 동일합니다.
+
+# forgetforge recall <topic>
+# forgetforge status
+# forgetforge keep <memory_id>
+# forgetforge forget <memory_id>
+# forgetforge prune

@@ -1,0 +1,26 @@
+[package]
+name = "forgetforge_engine"
+version = "0.1.0"
+edition = "2021"
+description = "Recall-centric memory scoring and tier engine for ForgetForge"
+
+[lib]
+name = "forgetforge_engine_native"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "forgetforge-engine"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pyo3 = { version = "0.23", features = ["abi3-py311"], optional = true }
+
+[features]
+python = ["dep:pyo3", "pyo3/extension-module"]
+
+[profile.release]
+lto = true
+codegen-units = 1

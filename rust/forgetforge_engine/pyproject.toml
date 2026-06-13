@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "forgetforge-engine-native"
+version = "0.1.0"
+description = "Native memory scoring engine for cluxion-Agentplugin-AutoClearMemory (PyO3)."
+requires-python = ">=3.11"
+license = "Apache-2.0"
+
+[tool.maturin]
+module-name = "forgetforge_engine_native"
+features = ["python"]
+bindings = "pyo3"
