@@ -86,8 +86,18 @@ def _ensure_fts(conn: sqlite3.Connection) -> None:
 
 
 def _fts_upsert(conn: sqlite3.Connection, memory_id: str, content: str) -> None:
-    conn.execute("DELETE FROM memories_fts WHERE memory_id = ?", (memory_id,))
-    conn.execute("INSERT INTO memories_fts (memory_id, content) VALUES (?, ?)", (memory_id, content))
+    owns_transaction = not conn.in_transaction
+    if owns_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("DELETE FROM memories_fts WHERE memory_id = ?", (memory_id,))
+        conn.execute("INSERT INTO memories_fts (memory_id, content) VALUES (?, ?)", (memory_id, content))
+    except Exception:
+        if owns_transaction:
+            conn.rollback()
+        raise
+    if owns_transaction:
+        conn.commit()
 
 
 def _fts_delete(conn: sqlite3.Connection, memory_id: str) -> None:

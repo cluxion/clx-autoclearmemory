@@ -73,7 +73,10 @@ def register(ctx: object) -> None:
 
 
 def _pre_llm_hot_inject(**_: object) -> dict[str, str]:
-    return hot_inject.hot_context_payload()
+    try:
+        return hot_inject.hot_context_payload()
+    except Exception:
+        return {}
 
 
 def _wrap(callback: Callable[[dict[str, object]], dict[str, object]]) -> Callable[[dict[str, object]], str]:
