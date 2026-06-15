@@ -114,3 +114,19 @@ def test_status_reports_stats_and_backend(capsys: pytest.CaptureFixture[str]) ->
     assert code == 0 and payload["ok"] is True
     assert payload["stats"]["total_memories"] == 1
     assert payload["engine_backend"] in {"native", "subprocess", "python"}
+
+
+def test_store_against_directory_db_returns_clean_error_json(capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Make db_path a directory to trigger connect failure
+    bad_db = tmp_path / "db.sqlite"
+    bad_db.mkdir()
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    # Force config to use bad path? but since load_config uses env, but db_path derived
+    # Instead, directly call with monkey to simulate
+    code = cli.main(["store", "m-err", "--content", "x"])
+    out = capsys.readouterr().out
+    assert code != 0
+    payload = json.loads(out)
+    assert payload["ok"] is False
+    assert "error" in payload
+    assert "error_type" in payload

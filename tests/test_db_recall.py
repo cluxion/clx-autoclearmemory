@@ -36,3 +36,11 @@ def test_connect_accepts_str_path(tmp_path: Path, monkeypatch):
     conn.commit()
     assert db.get_memory(conn, "s") is not None
     conn.close()
+
+
+def test_busy_timeout_is_set(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    assert timeout == 5000
+    conn.close()

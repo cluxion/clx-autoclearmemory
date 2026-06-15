@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.resources
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -150,28 +151,36 @@ def _status() -> int:
 
 
 def _recall(args: argparse.Namespace) -> int:
-    cfg = load_config()
-    conn = db.connect(cfg.db_path)
-    payload = store.recall_with_feedback(conn, str(args.query))
-    conn.close()
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
-    return 0
+    try:
+        cfg = load_config()
+        conn = db.connect(cfg.db_path)
+        payload = store.recall_with_feedback(conn, str(args.query))
+        conn.close()
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+    except (sqlite3.Error, OSError, FileExistsError) as e:
+        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
+        return 1
 
 
 def _store(args: argparse.Namespace) -> int:
-    cfg = load_config()
-    conn = db.connect(cfg.db_path)
-    stored = store.store_memory(
-        conn,
-        memory_id=str(args.memory_id),
-        content=str(args.content),
-        importance=float(args.importance),
-        frequency=float(args.frequency),
-        is_procedural=bool(args.procedural),
-    )
-    conn.close()
-    print(json.dumps({"ok": True, "stored": stored}, ensure_ascii=False, indent=2))
-    return 0
+    try:
+        cfg = load_config()
+        conn = db.connect(cfg.db_path)
+        stored = store.store_memory(
+            conn,
+            memory_id=str(args.memory_id),
+            content=str(args.content),
+            importance=float(args.importance),
+            frequency=float(args.frequency),
+            is_procedural=bool(args.procedural),
+        )
+        conn.close()
+        print(json.dumps({"ok": True, "stored": stored}, ensure_ascii=False, indent=2))
+        return 0
+    except (sqlite3.Error, OSError, FileExistsError) as e:
+        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
+        return 1
 
 
 def _pruner_daemon(args: argparse.Namespace) -> int:
@@ -204,21 +213,29 @@ def _hot_context(args: argparse.Namespace) -> int:
 
 
 def _keep(args: argparse.Namespace) -> int:
-    cfg = load_config()
-    conn = db.connect(cfg.db_path)
-    ok = db.mark_keep_forever(conn, str(args.memory_id))
-    conn.close()
-    print(json.dumps({"ok": ok, "memory_id": args.memory_id}, ensure_ascii=False))
-    return 0 if ok else 1
+    try:
+        cfg = load_config()
+        conn = db.connect(cfg.db_path)
+        ok = db.mark_keep_forever(conn, str(args.memory_id))
+        conn.close()
+        print(json.dumps({"ok": ok, "memory_id": args.memory_id}, ensure_ascii=False))
+        return 0 if ok else 1
+    except (sqlite3.Error, OSError, FileExistsError) as e:
+        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
+        return 1
 
 
 def _forget(args: argparse.Namespace) -> int:
-    cfg = load_config()
-    conn = db.connect(cfg.db_path)
-    ok = db.mark_forget(conn, str(args.memory_id))
-    conn.close()
-    print(json.dumps({"ok": ok, "memory_id": args.memory_id}, ensure_ascii=False))
-    return 0 if ok else 1
+    try:
+        cfg = load_config()
+        conn = db.connect(cfg.db_path)
+        ok = db.mark_forget(conn, str(args.memory_id))
+        conn.close()
+        print(json.dumps({"ok": ok, "memory_id": args.memory_id}, ensure_ascii=False))
+        return 0 if ok else 1
+    except (sqlite3.Error, OSError, FileExistsError) as e:
+        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
+        return 1
 
 
 def _prune() -> int:
