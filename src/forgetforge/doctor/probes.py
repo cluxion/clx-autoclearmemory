@@ -107,12 +107,32 @@ def native_module_importable(ctx: DoctorContext) -> tuple[str, str]:
 @_register("handler_exception_coverage")
 def handler_exception_coverage(ctx: DoctorContext) -> tuple[str, str]:
     try:
-        from forgetforge.adapters.hermes import _wrap
-        if _wrap is not None and callable(_wrap):
-            return "pass", "_wrap exists and is callable"
-        return "fail", "no _wrap"
+        import json
+
+        from forgetforge.adapters.hermes import register as hermes_register
+
+        class _TestCtx:
+            def __init__(self):
+                self.tools = {}
+
+            def register_tool(self, *, name: str, handler: object, **_):
+                self.tools[name] = handler
+
+            register_hook = None
+
+        tctx = _TestCtx()
+        hermes_register(tctx)
+        store_handler = tctx.tools.get("forgetforge_store")
+        if not store_handler:
+            return "fail", "store handler not registered"
+        # real test: bad type arg triggers exception path -> {ok: false}
+        raw = store_handler({"memory_id": "bad", "content": "x", "importance": [1, 2]})
+        payload = json.loads(raw)
+        if payload.get("ok") is False:
+            return "pass", "exception coverage verified (TypeError -> ok:false)"
+        return "fail", f"expected ok:false, got {payload}"
     except Exception as e:
-        return "skip", f"cannot check: {e}"
+        return "fail", f"probe error: {type(e).__name__}: {e}"
 
 
 # NEW deterministic probes for previously-skipped checks (real checks only, skip on uncertainty)

@@ -103,9 +103,10 @@ def _pre_llm_hot_inject(**_: object) -> dict[str, str]:
 
 def _wrap(callback: Callable[[dict[str, object]], dict[str, object]]) -> Callable[[dict[str, object]], str]:
     def handler(args: dict[str, object], **_: object) -> str:
+        args = args if isinstance(args, dict) else {}
         try:
             return json.dumps(callback(args), ensure_ascii=False, sort_keys=True)
-        except (ValueError, OSError) as exc:
+        except Exception as exc:
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, sort_keys=True)
 
     return handler

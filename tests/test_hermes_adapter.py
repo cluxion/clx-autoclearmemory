@@ -126,3 +126,15 @@ def test_schemas_are_full_function_specs() -> None:
         assert schema["name"] == name
         assert schema["description"].strip()
         assert schema["parameters"]["type"] == "object"
+
+
+def test_handler_coerces_none_args_and_catches_type_errors() -> None:
+    ctx = FakeCtx()
+    hermes.register(ctx)
+    # None args -> coerced to {}
+    payload = _call(ctx, "forgetforge_status", None)  # type: ignore[arg-type]
+    assert payload["ok"] is True
+    # bad type in importance -> TypeError caught -> ok:false
+    payload = _call(ctx, "forgetforge_store", {"memory_id": "t1", "content": "x", "importance": [1, 2]})
+    assert payload["ok"] is False
+    assert "error" in payload
