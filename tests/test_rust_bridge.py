@@ -87,3 +87,33 @@ def test_tier_batch_matches_single_calls(backend: str) -> None:
 
 def test_tier_batch_empty_is_empty(backend: str) -> None:
     assert rust_bridge.decide_tier_batch([]) == []
+
+
+def test_resolve_backend_is_cached(monkeypatch):
+    """Ensure resolve_backend memoizes and shutil.which is called at most once."""
+    import shutil as real_shutil
+
+    call_count = 0
+
+    original_which = real_shutil.which
+    def counting_which(cmd):
+        nonlocal call_count
+        call_count += 1
+        return original_which(cmd)
+
+    monkeypatch.setattr(real_shutil, "which", counting_which)
+    # Force python path 
+    monkeypatch.delenv(rust_bridge.ENGINE_BACKEND_ENV, raising=False)
+    monkeypatch.delenv(rust_bridge.ENGINE_BIN_ENV, raising=False)
+    monkeypatch.setattr(rust_bridge, "_native_module", lambda: None)
+    monkeypatch.setattr(rust_bridge, "_binary_available", lambda: False)
+    # Clear any cache 
+    rust_bridge._backend_cache = None
+    rust_bridge._env_snapshot = None
+
+    # Call multiple times
+    for _ in range(5):
+        b = rust_bridge.resolve_backend()
+        assert b == "python"
+
+    assert call_count <= 1, f"shutil.which called {call_count} times, expected <=1"

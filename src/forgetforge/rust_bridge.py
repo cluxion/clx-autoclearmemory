@@ -21,17 +21,30 @@ _BACKENDS = ("native", "subprocess", "python")
 _NATIVE_UNSET = object()
 _native_cache: Any = _NATIVE_UNSET
 
+_backend_cache: str | None = None
+_env_snapshot: tuple[str, str] | None = None
+
 
 def resolve_backend() -> str:
     """Return the backend that will serve scoring calls."""
-    configured = os.environ.get(ENGINE_BACKEND_ENV, "").strip().lower()
+    global _backend_cache, _env_snapshot
+    current_backend = os.environ.get(ENGINE_BACKEND_ENV, "").strip().lower()
+    current_bin = os.environ.get(ENGINE_BIN_ENV, "").strip()
+    current_env = (current_backend, current_bin)
+    if _backend_cache is not None and _env_snapshot == current_env:
+        return _backend_cache
+    configured = current_backend
     if configured in _BACKENDS:
-        return configured
-    if _native_module() is not None:
-        return "native"
-    if _binary_available():
-        return "subprocess"
-    return "python"
+        result = configured
+    elif _native_module() is not None:
+        result = "native"
+    elif _binary_available():
+        result = "subprocess"
+    else:
+        result = "python"
+    _backend_cache = result
+    _env_snapshot = current_env
+    return result
 
 
 def engine_available() -> bool:
