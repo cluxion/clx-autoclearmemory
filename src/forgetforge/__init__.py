@@ -1,5 +1,10 @@
 """ForgetForge — recall-centric memory plugin for universal agent environments."""
 
-__version__ = "0.3.8"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("cluxion-Agentplugin-AutoClearMemory")
+except PackageNotFoundError:  # pragma: no cover
+    __version__ = "0.3.9"
 
 __all__ = ["__version__"]
