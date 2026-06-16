@@ -108,9 +108,34 @@ def test_warn_only_is_ok():
     assert r.summary == "ok"
 
 
+def test_summary_critical_skip_is_degraded():
+    from forgetforge.doctor.framework import CheckResult, DoctorResult
+
+    checks = (
+        CheckResult(check_id="db", category="c", severity="critical", status="skip", detail="no db"),
+        CheckResult(check_id="x", category="c", severity="high", status="pass", detail="ok"),
+    )
+    r = DoctorResult(plugin="p", version="0.3.5", checks=checks)
+    assert r.summary == "degraded"
+    assert r.ok is False
+
+
+def test_summary_critical_fail_is_fail():
+    from forgetforge.doctor.framework import CheckResult, DoctorResult
+
+    checks = (
+        CheckResult(check_id="hermes", category="c", severity="critical", status="fail", detail="broken"),
+        CheckResult(check_id="x", category="c", severity="high", status="pass", detail="ok"),
+    )
+    r = DoctorResult(plugin="p", version="0.3.5", checks=checks)
+    assert r.summary == "fail"
+    assert r.ok is False
+
+
 def test_critical_skip_marks_degraded_summary(tmp_path, monkeypatch):
-    """Critical DB probes SKIP when no db exists → summary degraded (CI-safe)."""
+    """Hermes/DB absent → critical probes SKIP → summary degraded (CI-safe)."""
     monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    monkeypatch.setattr("forgetforge.doctor.probes.shutil.which", lambda _: None)
     assert not (tmp_path / "db.sqlite").exists()
     cat = _catalog_path()
     # handler_exception_coverage runs before DB probes and opens the real db via _conn().
@@ -123,6 +148,8 @@ def test_critical_skip_marks_degraded_summary(tmp_path, monkeypatch):
         version="0.3.5",
     )
     statuses = {c.check_id: c.status for c in result.checks}
+    assert statuses["hermes_on_path"] == "skip"
+    assert statuses["hermes_oneshot_flag"] == "skip"
     assert statuses["database_file_exists_and_readable"] == "skip"
     assert statuses["database_schema_current"] == "skip"
     assert result.summary == "degraded"
@@ -130,6 +157,30 @@ def test_critical_skip_marks_degraded_summary(tmp_path, monkeypatch):
     payload = json.loads(render_json(result))
     assert payload["summary"] == "degraded"
     assert payload["ok"] is False
+
+
+def test_hermes_probes_skip_when_absent(monkeypatch):
+    monkeypatch.setattr("forgetforge.doctor.probes.shutil.which", lambda _: None)
+    ctx = _doctor_ctx()
+    for name in ("hermes_on_path", "hermes_oneshot_flag", "hermes_version", "toolset_valid"):
+        status, detail = PROBES[name](ctx)
+        assert status == "skip"
+        assert "cannot verify" in detail
+
+
+def test_hermes_oneshot_flag_fails_when_present_but_missing_flag(monkeypatch):
+    monkeypatch.setattr(
+        "forgetforge.doctor.probes.shutil.which",
+        lambda _: "/usr/local/bin/hermes",
+    )
+
+    def _help_without_oneshot(cmd):
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="usage: hermes", stderr="")
+
+    ctx = DoctorContext(Path.cwd(), "hermes", _help_without_oneshot)
+    status, detail = PROBES["hermes_oneshot_flag"](ctx)
+    assert status == "fail"
+    assert "missing" in detail
 
 
 def _doctor_ctx() -> DoctorContext:

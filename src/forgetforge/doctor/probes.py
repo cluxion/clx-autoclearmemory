@@ -54,16 +54,27 @@ def _connect_readonly(db_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(uri, uri=True, timeout=5.0)
 
 
+_HERMES_ABSENT_DETAIL = "hermes binary not on PATH — cannot verify"
+
+
+def _hermes_absent_for(ctx: DoctorContext) -> tuple[str, str] | None:
+    if shutil.which(ctx.hermes_bin) is None:
+        return "skip", _HERMES_ABSENT_DETAIL
+    return None
+
+
 @_register("hermes_on_path")
 def hermes_on_path(ctx: DoctorContext) -> tuple[str, str]:
     p = shutil.which(ctx.hermes_bin)
     if p:
         return "pass", str(p)
-    return "fail", "not found on PATH"
+    return "skip", _HERMES_ABSENT_DETAIL
 
 
 @_register("hermes_version")
 def hermes_version(ctx: DoctorContext) -> tuple[str, str]:
+    if absent := _hermes_absent_for(ctx):
+        return absent
     try:
         cp = ctx.run([ctx.hermes_bin, "--version"])
         if cp.returncode == 0 and "Hermes Agent v" in cp.stdout:
@@ -75,6 +86,8 @@ def hermes_version(ctx: DoctorContext) -> tuple[str, str]:
 
 @_register("hermes_oneshot_flag")
 def hermes_oneshot_flag(ctx: DoctorContext) -> tuple[str, str]:
+    if absent := _hermes_absent_for(ctx):
+        return absent
     try:
         cp = ctx.run([ctx.hermes_bin, "--help"])
         out = cp.stdout + cp.stderr
@@ -101,6 +114,8 @@ def entry_point_registered(ctx: DoctorContext) -> tuple[str, str]:
 
 @_register("toolset_valid")
 def toolset_valid(ctx: DoctorContext) -> tuple[str, str]:
+    if absent := _hermes_absent_for(ctx):
+        return absent
     try:
         cp = ctx.run([ctx.hermes_bin, "tools", "list"])
         if cp.returncode == 0 and "forgetforge" in cp.stdout:
