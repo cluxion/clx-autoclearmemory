@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from forgetforge import archive, db, pruner, store
+from forgetforge import archive, db, pruner, recall, store
 from forgetforge.config import load_config
 
 
@@ -76,6 +76,33 @@ def test_write_cold_archive_batch_empty_is_noop(tmp_path: Path, monkeypatch):
     result = archive.write_cold_archive_batch(cfg, [])
     assert result == {"format": "noop", "parquet": None, "jsonl": None, "count": 0}
     assert not cfg.archive_dir.exists() or not any(cfg.archive_dir.iterdir())
+
+
+def test_pruner_bounds_retrieval_events(tmp_path: Path, monkeypatch):
+    conn, cfg = _isolated_conn(tmp_path, monkeypatch)
+    store.store_memory(conn, memory_id="evt", content="retrieval event pruning target memory")
+    for _ in range(5):
+        recall.recall_query(conn, "retrieval")
+    old_ts = "2000-01-01T00:00:00+00:00"
+    conn.execute("UPDATE retrieval_events SET created_at = ?", (old_ts,))
+    conn.commit()
+    assert db.memory_stats(conn)["retrieval_events"] == 5
+
+    cfg = cfg.__class__(
+        **{
+            **cfg.__dict__,
+            "retrieval_events_max_age_days": 30,
+            "retrieval_events_max_per_memory": 2,
+        }
+    )
+    result = pruner.run_pruner(conn, config=cfg)
+
+    assert result["retrieval_events_gc"]["deleted_by_age"] >= 1
+    assert db.memory_stats(conn)["retrieval_events"] <= 2
+    row = db.get_memory(conn, "evt")
+    assert row is not None
+    assert row.retrieval_count > 0
+    conn.close()
 
 
 def test_update_memory_tiers_batch(tmp_path: Path, monkeypatch):

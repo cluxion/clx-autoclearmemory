@@ -52,11 +52,17 @@ def run_pruner(conn, config: ForgetForgeConfig | None = None) -> dict[str, Any]:
             promoted.append(row.id)
     db.update_memory_tiers(conn, tier_updates)
     archive.write_cold_archive_batch(cfg, archive_records)
+    retrieval_gc = db.prune_retrieval_events(
+        conn,
+        max_age_days=cfg.retrieval_events_max_age_days,
+        max_per_memory=cfg.retrieval_events_max_per_memory,
+    )
     return {
         "ok": True,
         "demoted_to_cold": demoted,
         "promoted_from_cold": promoted,
         "interval_hours": cfg.pruner_interval_hours,
+        "retrieval_events_gc": retrieval_gc,
     }
 
 

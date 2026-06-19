@@ -61,6 +61,16 @@ def store_memory(
     }
     if warnings:
         payload["contradiction_warnings"] = warnings
+        payload["contradiction_warnings_advisory"] = True
+    if importance >= 0.85 and row.retrieval_count == 0.0:
+        db.update_memory_state(
+            conn,
+            memory_id=row.id,
+            tier="hot",
+            retrieval_count=row.retrieval_count,
+        )
+        row = db.get_memory(conn, row.id) or row
+        payload["tier"] = row.tier
     return payload
 
 

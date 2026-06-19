@@ -14,6 +14,20 @@ def test_hot_context_lists_hot_memories(tmp_path: Path, monkeypatch):
     conn.close()
 
 
+def test_high_importance_memory_surfaces_without_recall(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    store.store_memory(
+        conn,
+        memory_id="flight",
+        content="User flight departs at 6am tomorrow from terminal two",
+        importance=0.9,
+    )
+    ctx = hot_inject.build_hot_context(conn)
+    assert "flight" in ctx
+    conn.close()
+
+
 def test_hermes_pre_llm_hook(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
     from forgetforge.adapters import hermes

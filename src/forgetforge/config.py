@@ -16,6 +16,8 @@ class ForgetForgeConfig:
     cold_retention_threshold: float = 0.40
     hot_window_days: int = 7
     no_recall_archive_days: int = 180
+    retrieval_events_max_age_days: int = 90
+    retrieval_events_max_per_memory: int = 100
 
 
 def default_home() -> Path:
@@ -43,6 +45,8 @@ def load_config(path: Path | None = None) -> ForgetForgeConfig:
         cold_retention_threshold=float(thresholds.get("cold_retention", 0.40)),
         hot_window_days=int(thresholds.get("hot_window_days", 7)),
         no_recall_archive_days=int(thresholds.get("no_recall_archive_days", 180)),
+        retrieval_events_max_age_days=int(pruner.get("retrieval_events_max_age_days", 90)),
+        retrieval_events_max_per_memory=int(pruner.get("retrieval_events_max_per_memory", 100)),
     )
 
 

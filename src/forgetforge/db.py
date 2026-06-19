@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -356,6 +356,54 @@ def list_forgotten_memories(conn: sqlite3.Connection, *, limit: int = 100) -> li
     return [_row_to_memory(row) for row in cur.fetchall()]
 
 
+def prune_retrieval_events(
+    conn: sqlite3.Connection,
+    *,
+    max_age_days: int = 90,
+    max_per_memory: int = 100,
+) -> dict[str, int]:
+    """Bound audit-only retrieval_events growth (not used in scoring)."""
+    if max_age_days > 0:
+        cutoff = (datetime.now(UTC) - timedelta(days=max_age_days)).replace(microsecond=0).isoformat()
+        cur = conn.execute("DELETE FROM retrieval_events WHERE created_at < ?", (cutoff,))
+        deleted_by_age = cur.rowcount
+    else:
+        deleted_by_age = 0
+
+    deleted_by_cap = 0
+    if max_per_memory > 0:
+        rows = conn.execute(
+            """
+            SELECT memory_id, COUNT(*) AS c
+            FROM retrieval_events
+            GROUP BY memory_id
+            HAVING c > ?
+            """,
+            (max_per_memory,),
+        ).fetchall()
+        for row in rows:
+            memory_id = str(row["memory_id"])
+            excess = int(row["c"]) - max_per_memory
+            ids = conn.execute(
+                """
+                SELECT id FROM retrieval_events
+                WHERE memory_id = ?
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?
+                """,
+                (memory_id, excess),
+            ).fetchall()
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                cur = conn.execute(
+                    f"DELETE FROM retrieval_events WHERE id IN ({placeholders})",
+                    [int(r["id"]) for r in ids],
+                )
+                deleted_by_cap += cur.rowcount
+    conn.commit()
+    return {"deleted_by_age": deleted_by_age, "deleted_by_cap": deleted_by_cap}
+
+
 def memory_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     cur = conn.execute(
         """
@@ -403,6 +451,7 @@ __all__ = [
     "mark_forget",
     "mark_keep_forever",
     "memory_stats",
+    "prune_retrieval_events",
     "search_memories",
     "unforget",
     "update_memory_state",

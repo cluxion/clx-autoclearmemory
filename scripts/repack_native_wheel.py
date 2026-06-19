@@ -23,6 +23,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from wheel.wheelfile import WheelFile
+
 
 def _unpack(wheel: Path, dest: Path) -> Path:
     subprocess.run(
@@ -54,11 +56,34 @@ def _native_tags(native_tree: Path) -> list[str]:
     return tags
 
 
+def _remove_stray_dist_info(tree: Path, primary: Path) -> None:
+    """Drop maturin dist-info so only the project RECORD is shipped."""
+    primary_resolved = primary.resolve()
+    for info in tree.glob("*.dist-info"):
+        if info.resolve() != primary_resolved:
+            shutil.rmtree(info)
+
+
+def _purge_stale_record(dist_info: Path) -> None:
+    record = dist_info / "RECORD"
+    if record.exists():
+        record.unlink()
+
+
+def _verify_wheel_record_hashes(wheel_path: Path) -> None:
+    with WheelFile(wheel_path) as wf:
+        for name in wf.namelist():
+            if name.endswith("/"):
+                continue
+            wf.open(name)
+
+
 def merge(pure_wheel: Path, native_wheel: Path, out_dir: Path) -> Path:
     with tempfile.TemporaryDirectory() as scratch:
         scratch_path = Path(scratch)
         pure_tree = _unpack(pure_wheel, scratch_path / "pure")
         native_tree = _unpack(native_wheel, scratch_path / "native")
+        primary_dist_info = _dist_info(pure_tree)
 
         # Copy everything except packaging metadata: for an abi3 cdylib
         # module that is the single compiled extension (.so / .pyd).
@@ -75,7 +100,10 @@ def merge(pure_wheel: Path, native_wheel: Path, out_dir: Path) -> Path:
         if copied == 0:
             raise SystemExit("native wheel contained no payload to merge")
 
-        wheel_file = _dist_info(pure_tree) / "WHEEL"
+        _remove_stray_dist_info(pure_tree, primary_dist_info)
+        _purge_stale_record(primary_dist_info)
+
+        wheel_file = primary_dist_info / "WHEEL"
         lines = [
             line
             for line in wheel_file.read_text(encoding="utf-8").splitlines()
@@ -94,7 +122,9 @@ def merge(pure_wheel: Path, native_wheel: Path, out_dir: Path) -> Path:
         produced = set(out_dir.glob("*.whl")) - before
         if len(produced) != 1:
             raise SystemExit(f"expected one repacked wheel, found {len(produced)}")
-        return produced.pop()
+        merged = produced.pop()
+        _verify_wheel_record_hashes(merged)
+        return merged
 
 
 def main() -> None:
