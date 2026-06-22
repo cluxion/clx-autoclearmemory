@@ -101,6 +101,40 @@ def register(ctx: object) -> None:
     if callable(register_hook):
         register_hook("pre_llm_call", _pre_llm_hot_inject)
 
+    register_command = getattr(ctx, "register_command", None)
+    if callable(register_command):
+
+        def _slash_forgetforge_recall(raw_args: str) -> str:
+            query = raw_args.strip()
+            if not query:
+                return "Usage: /forgetforge-recall <query>"
+            return json.dumps(_handle_recall({"query": query}), ensure_ascii=False, sort_keys=True)
+
+        def _slash_forgetforge_status(raw_args: str) -> str:
+            del raw_args
+            return json.dumps(_handle_status({}), ensure_ascii=False, sort_keys=True)
+
+        def _slash_forgetforge_doctor(raw_args: str) -> str:
+            del raw_args
+            return _handle_doctor({}).get("doctor_json", "{}")
+
+        register_command(
+            "forgetforge-recall",
+            _slash_forgetforge_recall,
+            description="Recall memories from ForgetForge store",
+            args_hint="<query>",
+        )
+        register_command(
+            "forgetforge-status",
+            _slash_forgetforge_status,
+            description="Show ForgetForge memory store status",
+        )
+        register_command(
+            "forgetforge-doctor",
+            _slash_forgetforge_doctor,
+            description="Run ForgetForge plugin doctor checks",
+        )
+
 
 def _pre_llm_hot_inject(**_: object) -> dict[str, str]:
     try:
