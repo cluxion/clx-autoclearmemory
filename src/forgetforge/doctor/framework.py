@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import subprocess
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +87,7 @@ class DoctorContext:
         self.run = run
 
 
+@lru_cache(maxsize=8)
 def load_catalog(catalog_path: Path) -> tuple[CatalogEntry, ...]:
     raw = json.loads(catalog_path.read_text(encoding="utf-8"))
     entries: list[CatalogEntry] = []
@@ -109,7 +112,7 @@ def load_catalog(catalog_path: Path) -> tuple[CatalogEntry, ...]:
             elif val is not None:
                 data[f] = val
         if "check_id" in data:
-            entries.append(CatalogEntry(**data))  # type: ignore[arg-type]
+            entries.append(CatalogEntry(**data))
     return tuple(entries)
 
 
@@ -137,8 +140,7 @@ def run_doctor(
 ) -> DoctorResult:
     catalog = load_catalog(catalog_path)
     ctx = DoctorContext(cwd=cwd, hermes_bin=hermes_bin, run=_make_runner())
-    results: list[CheckResult] = []
-    for entry in catalog:
+    def run_entry(entry: CatalogEntry) -> CheckResult:
         if entry.check_id in probes:
             try:
                 status, detail = probes[entry.check_id](ctx)
@@ -146,15 +148,16 @@ def run_doctor(
                 status, detail = "fail", f"probe raised {type(e).__name__}: {e}"
         else:
             status, detail = "skip", "no probe registered"
-        results.append(
-            CheckResult(
-                check_id=entry.check_id,
-                category=entry.category,
-                severity=entry.severity,
-                status=status,
-                detail=detail,
-            )
+        return CheckResult(
+            check_id=entry.check_id,
+            category=entry.category,
+            severity=entry.severity,
+            status=status,
+            detail=detail,
         )
+
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(catalog)))) as pool:
+        results = list(pool.map(run_entry, catalog))
     results.sort(key=lambda c: (SEVERITY_RANK.get(c.severity, 9), c.check_id))
     return DoctorResult(plugin=plugin, version=version, checks=tuple(results))
 

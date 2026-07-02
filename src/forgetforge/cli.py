@@ -318,7 +318,7 @@ def _doctor(args: argparse.Namespace) -> int:
     else:
         cat_entries = load_catalog(cat_path)
         text = render_text(result, cat_entries, verbose=getattr(args, "verbose", False))
-        print(text, file=sys.stderr)
+        print(text)
     return 0 if result.ok else 1
 
 

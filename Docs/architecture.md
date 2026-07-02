@@ -39,6 +39,9 @@ graph TD
 
 ## Tiered Memory
 
+Public CLI/API `retention` fields are normalized to `0.0..1.0`. The Rust engine keeps its
+internal `0.0..10.0` score for pruning thresholds and tier decisions.
+
 | Tier | 조건 | 연결된 AI |
 |------|------|-----------|
 | **Hot** | 최근 7일 + N_r ≥ 1 | recall 결과 우선 반영 |

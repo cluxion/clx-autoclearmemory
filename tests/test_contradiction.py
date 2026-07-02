@@ -69,3 +69,38 @@ def test_store_returns_advisory_warnings(tmp_path: Path, monkeypatch):
     assert stored["contradiction_warnings_advisory"] is True
     assert stored["contradiction_warnings"][0]["advisory"] is True
     conn.close()
+
+
+def test_detect_contradictions_prefilters_with_fts(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    for index in range(500):
+        store.store_memory(
+            conn,
+            memory_id=f"noise-{index}",
+            content=f"Project component {index} uses postgres shard {index} for background queue processing",
+            check_contradictions=False,
+        )
+    store.store_memory(
+        conn,
+        memory_id="target",
+        content="User always prefers docker compose for local development",
+        check_contradictions=False,
+    )
+
+    calls = 0
+    original_tokens = contradiction._tokens
+
+    def counting_tokens(text: str):
+        nonlocal calls
+        calls += 1
+        return original_tokens(text)
+
+    monkeypatch.setattr(contradiction, "_tokens", counting_tokens)
+    hits = contradiction.detect_contradictions(
+        conn,
+        content="User never prefers docker compose for local development",
+    )
+    assert hits and hits[0].memory_id == "target"
+    assert calls < 50
+    conn.close()

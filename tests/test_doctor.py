@@ -2,8 +2,10 @@
 
 import json
 import subprocess
+import time
 from pathlib import Path
 
+from forgetforge import cli
 from forgetforge.doctor import (
     DoctorResult,
     render_json,
@@ -138,8 +140,12 @@ def test_critical_skip_marks_degraded_summary(tmp_path, monkeypatch):
     monkeypatch.setattr("forgetforge.doctor.probes.shutil.which", lambda _: None)
     assert not (tmp_path / "db.sqlite").exists()
     cat = _catalog_path()
-    # handler_exception_coverage runs before DB probes and opens the real db via _conn().
-    probes = {k: v for k, v in PROBES.items() if k != "handler_exception_coverage"}
+    # Keep this focused on absent Hermes/DB; install metadata can fail independently in source checkouts.
+    probes = {
+        k: v
+        for k, v in PROBES.items()
+        if k not in {"entry_point_registered", "handler_exception_coverage", "install_integrity"}
+    }
     result = run_doctor(
         cwd=Path.cwd(),
         catalog_path=cat,
@@ -232,3 +238,53 @@ def test_static_high_probes_registered_and_pass():
     ctx = _doctor_ctx()
     assert hermes_tool_schemas_valid(ctx)[0] == "pass"
     assert memory_id_validation(ctx)[0] == "pass"
+
+
+def test_doctor_human_report_goes_to_stdout(capsys, monkeypatch):
+    monkeypatch.setattr(
+        cli,
+        "run_doctor",
+        lambda **_: DoctorResult(plugin="p", version="0", checks=()),
+    )
+    assert cli.main(["doctor"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out is not None
+    assert captured.err == ""
+
+
+def test_run_doctor_probes_in_parallel(tmp_path):
+    cat = tmp_path / "catalog.json"
+    cat.write_text(
+        json.dumps(
+            [
+                {
+                    "check_id": f"slow_{index}",
+                    "category": "runtime",
+                    "severity": "low",
+                    "what_it_checks": "slow",
+                    "failure_symptom": "slow",
+                    "likely_causes": [],
+                    "fix_steps": [],
+                    "change_robust": "parallel",
+                }
+                for index in range(4)
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def slow_probe(ctx):
+        time.sleep(0.05)
+        return "pass", "ok"
+
+    started = time.perf_counter()
+    result = run_doctor(
+        cwd=Path.cwd(),
+        catalog_path=cat,
+        probes={f"slow_{index}": slow_probe for index in range(4)},
+        plugin="autoclearmemory",
+        version="0.3.5",
+    )
+    elapsed = time.perf_counter() - started
+    assert [c.status for c in result.checks] == ["pass", "pass", "pass", "pass"]
+    assert elapsed < 0.15

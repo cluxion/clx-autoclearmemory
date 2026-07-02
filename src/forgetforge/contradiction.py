@@ -117,7 +117,10 @@ def detect_contradictions(
         return []
     hits: list[ContradictionHit] = []
     lower_new = content.lower()
-    for row in db.list_memories(conn, limit=500):
+    rows = db.search_candidate_memories(conn, new_tokens, limit=40)
+    if not rows:
+        rows = db.list_memories(conn, limit=500)
+    for row in rows:
         if exclude_id and row.id == exclude_id:
             continue
         old_tokens = _tokens(row.content)

@@ -34,6 +34,12 @@ class RecallResult:
         }
 
 
+def user_retention(raw: float, *, keep_forever: bool = False) -> float:
+    if keep_forever:
+        return 1.0
+    return min(1.0, max(0.0, raw / 10.0))
+
+
 def days_since(ts: str | None) -> float:
     if not ts:
         return 999.0
@@ -96,7 +102,7 @@ def record_retrieval(
         memory_id=memory_id,
         content=row.content,
         tier=str(decision["tier"]),
-        retention=float(decision["retention"]),
+        retention=user_retention(float(decision["retention"]), keep_forever=row.keep_forever),
         action=str(decision["action"]),
         layer=layer,
     )
@@ -139,7 +145,7 @@ def score_memory(row: db.MemoryRow, config: ForgetForgeConfig | None = None) -> 
         "memory_id": row.id,
         "tier": decision["tier"],
         "action": decision["action"],
-        "retention": scored["retention"],
+        "retention": user_retention(float(scored["retention"]), keep_forever=row.keep_forever),
         "days_since_recall": days,
     }
 
@@ -172,11 +178,19 @@ def score_memories(rows: list[db.MemoryRow], config: ForgetForgeConfig | None = 
             "memory_id": row.id,
             "tier": decision["tier"],
             "action": decision["action"],
-            "retention": decision["retention"],
+            "retention": user_retention(float(decision["retention"]), keep_forever=row.keep_forever),
             "days_since_recall": day,
         }
         for row, decision, day in zip(rows, decisions, days, strict=True)
     ]
 
 
-__all__ = ["RecallResult", "days_since", "recall_query", "record_retrieval", "score_memories", "score_memory"]
+__all__ = [
+    "RecallResult",
+    "days_since",
+    "recall_query",
+    "record_retrieval",
+    "score_memories",
+    "score_memory",
+    "user_retention",
+]

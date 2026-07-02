@@ -21,6 +21,9 @@ forgetforge-engine             (Rust: retention, tier)
 | `score` | RetentionInput → retention, stability, boost |
 | `tier` | TierInput → tier, action, retention |
 
+Rust `retention` is the internal scoring value (`0.0..10.0`). Python normalizes user-facing
+CLI/API `retention` fields to `0.0..1.0`.
+
 ```bash
 cargo build --release --manifest-path rust/forgetforge_engine/Cargo.toml
 ```

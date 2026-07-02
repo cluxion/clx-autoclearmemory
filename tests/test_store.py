@@ -30,3 +30,36 @@ def test_recall_empty_message(tmp_path: Path, monkeypatch):
     assert payload["message"] == "no_memories_matched"
     assert "forgetforge store" in payload["hint"]
     conn.close()
+
+
+def test_fresh_high_importance_memory_reports_born_hot_contract(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    stored = store.store_memory(
+        conn,
+        memory_id="launch",
+        content="Release 0.3.15 must stay visible immediately after storing.",
+        importance=0.95,
+    )
+    assert stored["tier"] == "hot"
+    assert stored["action"] == "inject_to_prompt"
+    assert stored["retention"] == 1.0
+    assert db.get_memory(conn, "launch").tier == "hot"
+    conn.close()
+
+
+def test_recall_retention_is_user_normalized(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    store.store_memory(
+        conn,
+        memory_id="frequent",
+        content="Frequent memory for normalized retention output.",
+        importance=1.0,
+        frequency=1.0,
+    )
+    db.update_memory_state(conn, memory_id="frequent", tier="hot", retrieval_count=25.0)
+    payload = store.recall_with_feedback(conn, "Frequent")
+    retention = payload["results"][0]["retention"]
+    assert 0.0 <= retention <= 1.0
+    conn.close()

@@ -359,7 +359,8 @@ def memory_id_validation(ctx: DoctorContext) -> tuple[str, str]:
     from forgetforge import db, store
 
     try:
-        store.store_memory(None, memory_id="", content="x")  # type: ignore[arg-type]
+        empty_id_conn: object = None  # the guard must fire before any DB access
+        store.store_memory(empty_id_conn, memory_id="", content="x")
         return "fail", "empty memory_id did not raise"
     except ValueError:
         pass

@@ -52,10 +52,12 @@ def store_memory(
             retrieval_count=row.retrieval_count,
         )
         row = db.get_memory(conn, row.id) or row
+    from forgetforge import recall
+
     payload: dict[str, Any] = {
         "memory_id": row.id,
         "tier": row.tier,
-        "retention": float(decision["retention"]),
+        "retention": recall.user_retention(float(decision["retention"]), keep_forever=row.keep_forever),
         "action": str(decision["action"]),
         "content_preview": row.content[:120],
     }
@@ -71,6 +73,8 @@ def store_memory(
         )
         row = db.get_memory(conn, row.id) or row
         payload["tier"] = row.tier
+        payload["retention"] = 1.0
+        payload["action"] = "inject_to_prompt"
     return payload
 
 

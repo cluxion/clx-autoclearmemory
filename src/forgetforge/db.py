@@ -73,7 +73,7 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
     return conn
 
 
-def _ensure_fts(conn: sqlite3.Connection) -> None:
+def _ensure_fts(conn: sqlite3.Connection) -> dict[str, int]:
     had_fts = (
         conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories_fts' LIMIT 1"
@@ -95,12 +95,18 @@ def _ensure_fts(conn: sqlite3.Connection) -> None:
         has_memory = conn.execute("SELECT 1 FROM memories WHERE forget_requested = 0 LIMIT 1").fetchone()
         if has_memory and conn.execute("SELECT 1 FROM memories_fts LIMIT 1").fetchone() is None:
             needs_backfill_probe = True
+    counts = {"backfilled": 0, "failed": 0}
     if needs_backfill_probe:
         existing = conn.execute("SELECT COUNT(*) AS c FROM memories_fts").fetchone()
         memory_count = conn.execute("SELECT COUNT(*) AS c FROM memories WHERE forget_requested = 0").fetchone()
         if existing and memory_count and int(existing["c"]) == 0 and int(memory_count["c"]) > 0:
             for row in conn.execute("SELECT id, content FROM memories WHERE forget_requested = 0"):
-                _fts_upsert(conn, str(row["id"]), str(row["content"]))
+                try:
+                    _fts_upsert(conn, str(row["id"]), str(row["content"]))
+                    counts["backfilled"] += 1
+                except Exception:
+                    counts["failed"] += 1
+    return counts
 
 
 def _fts_upsert(conn: sqlite3.Connection, memory_id: str, content: str) -> None:
@@ -212,6 +218,28 @@ def search_memories(conn: sqlite3.Connection, query: str, *, limit: int = 20) ->
             (pattern, limit),
         )
         rows = cur.fetchall()
+    return [_row_to_memory(row) for row in rows]
+
+
+def search_candidate_memories(conn: sqlite3.Connection, terms: set[str], *, limit: int = 40) -> list[MemoryRow]:
+    clean_terms = sorted({term for term in terms if term.replace("_", "").isalnum()})
+    if not clean_terms:
+        return []
+    fts_query = " OR ".join(f'"{term}"' for term in clean_terms)
+    try:
+        rows = conn.execute(
+            """
+            SELECT m.*
+            FROM memories_fts f
+            JOIN memories m ON m.id = f.memory_id
+            WHERE memories_fts MATCH ? AND m.forget_requested = 0
+            ORDER BY bm25(memories_fts)
+            LIMIT ?
+            """,
+            (fts_query, limit),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
     return [_row_to_memory(row) for row in rows]
 
 
@@ -477,6 +505,7 @@ __all__ = [
     "mark_keep_forever",
     "memory_stats",
     "prune_retrieval_events",
+    "search_candidate_memories",
     "search_memories",
     "unforget",
     "update_memory_state",

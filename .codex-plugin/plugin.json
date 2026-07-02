@@ -1,6 +1,6 @@
 {
   "name": "cluxion-agentplugin-autoclearmemory",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "ForgetForge recall-centric memory plugin for Hermes, Claude Code, and Codex.",
   "author": {
     "name": "cluxion"
