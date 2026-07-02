@@ -23,13 +23,15 @@
 
 **v0.2 추가:** FTS5 recall, brief handoff, hot inject hook, contradiction hints, Parquet cold archive.
 
-Skill 지시문: [`adapters/claude/skills/forgetforge/SKILL.md`](../adapters/claude/skills/forgetforge/SKILL.md)
+Skill 지시문: [`skills/forgetforge/SKILL.md`](../skills/forgetforge/SKILL.md)
 
 ### 사람(개발자)이 할 일
 
 ```bash
 pip install cluxion-Agentplugin-AutoClearMemory
-forgetforge init --agents=all   # DB + adapter assets + example config from wheel
+forgetforge init
+codex plugin marketplace add <path-to-marketplace-root>
+codex plugin add cluxion-agentplugin-autoclearmemory
 hermes plugins enable forgetforge   # Hermes 예시
 ```
 

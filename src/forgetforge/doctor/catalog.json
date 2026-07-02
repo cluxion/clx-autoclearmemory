@@ -351,7 +351,7 @@
       "List all forgetforge processes: ps aux | grep forgetforge",
       "Kill any stale daemon: pkill -9 'forgetforge.*pruner-daemon'",
       "Check Hermes startup script doesn't auto-start daemon: grep -r 'pruner-daemon' ~/.hermes/",
-      "If daemon needed, restart in proper background/nohup: nohup forgetforge pruner-daemon > ~/.forgetforge/pruner.log 2>&1 &",
+      "If daemon needed, run with a bounded cycle cap under a service manager: forgetforge pruner-daemon --max-cycles 24",
       "Monitor logs: tail -f ~/.forgetforge/pruner.log",
       "Check for repeated 'database is locked': if present, stop other access and retry"
     ],

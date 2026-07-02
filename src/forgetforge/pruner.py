@@ -66,18 +66,21 @@ def run_pruner(conn, config: ForgetForgeConfig | None = None) -> dict[str, Any]:
     }
 
 
-def run_pruner_daemon(*, interval_hours: int | None = None, run_once: bool = False) -> None:
-    """Run pruner on an interval until interrupted."""
+def run_pruner_daemon(*, interval_hours: int | None = None, run_once: bool = False, max_cycles: int = 24) -> None:
+    """Run pruner on an interval with a hard cycle cap."""
     cfg = load_config()
     hours = interval_hours or cfg.pruner_interval_hours
     seconds = max(60, int(hours * 3600))
-    while True:
+    cycles = 1 if run_once else max(1, max_cycles)
+    for index in range(cycles):
         conn = db.connect(cfg.db_path)
         try:
             run_pruner(conn, config=cfg)
         finally:
             conn.close()
         if run_once:
+            return
+        if index == cycles - 1:
             return
         time.sleep(seconds)
 

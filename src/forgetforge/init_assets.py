@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from importlib.abc import Traversable
 
-_KNOWN_AGENTS = ("hermes", "claude", "codex")
+_KNOWN_AGENTS = ("hermes",)
 _EXAMPLE_NAME = "config.yaml.example"
 
 

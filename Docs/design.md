@@ -59,7 +59,7 @@ Hermes: `forgetforge_import_brief`
 - 180일 무회상 → `~/.forgetforge/archive/`에 parquet + jsonl + txt 저장 (`archive.write_cold_archive`)
 - Cold → Warm: recall 발생 시 즉시 승격
 
-주기 실행: `forgetforge prune` (cron/systemd 등).
+주기 실행: `forgetforge prune` 또는 `forgetforge pruner-daemon --max-cycles 24`를 서비스 매니저에서 재시작.
 
 ## User safety tags
 
@@ -71,5 +71,7 @@ Hermes: `forgetforge_import_brief`
 ```
 src/forgetforge/          # db, recall, pruner, rust_bridge, cli
 rust/forgetforge_engine/  # scoring + tier (Rust)
-adapters/                 # Hermes README, Claude skill, Codex snippet
+adapters/hermes/          # Hermes adapter notes copied by forgetforge init
+commands/                 # Codex/Claude slash commands calling the CLI
+skills/                   # Codex/Claude host instructions
 ```

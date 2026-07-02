@@ -52,7 +52,7 @@ forgetforge doctor --json   # 구조화 출력
 
 Hermes 안에서는 `forgetforge_doctor` 도구로도 노출됩니다.
 
-## Hermes 슬래시 커맨드 (0.3.13+)
+## 슬래시 커맨드 (0.3.14+)
 
 ```
 /forgetforge-recall redis port
@@ -60,7 +60,8 @@ Hermes 안에서는 `forgetforge_doctor` 도구로도 노출됩니다.
 /forgetforge-doctor
 ```
 
-`/` 입력 시 🔌로 표시 · recall/status는 도구 `forgetforge_recall` / `forgetforge_status`와 동일.
+Hermes에서는 `/` 입력 시 🔌로 표시됩니다. Codex와 Claude Code에서는 루트 `commands/` 플러그인 명령이
+같은 `forgetforge` CLI를 호출합니다.
 
 ## 라이선스
 
@@ -120,7 +121,7 @@ forgetforge doctor --json   # structured output
 
 Also exposed inside Hermes as the `forgetforge_doctor` tool.
 
-## Hermes slash commands (0.3.13+)
+## Slash commands (0.3.14+)
 
 ```
 /forgetforge-recall redis port
@@ -128,7 +129,8 @@ Also exposed inside Hermes as the `forgetforge_doctor` tool.
 /forgetforge-doctor
 ```
 
-Shows in `/` autocomplete with 🔌 · recall/status match tools `forgetforge_recall` / `forgetforge_status`.
+Hermes shows them in `/` autocomplete with 🔌. Codex and Claude Code use the root `commands/` plugin
+commands to call the same `forgetforge` CLI.
 
 ## License
 

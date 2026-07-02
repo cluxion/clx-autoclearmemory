@@ -21,7 +21,7 @@ forgetforge init --agents=hermes
 
 연결된 AI는 recall 결과를 읽고 응답 맥락에 반영합니다. Hermes는 hot tier를 `pre_llm_call` hook으로 자동 inject합니다.
 
-## 슬래시 (0.3.13+)
+## 슬래시 (0.3.14+)
 
 | Slash | 도구 대응 |
 |---|---|

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cluxion-Agentplugin-AutoClearMemory"
-version = "0.3.13"
+version = "0.3.14"
 description = "Universal agent memory plugin (ForgetForge): recall-centric retention, tiered forgetting, Rust scoring engine for Hermes, Claude Code, and Codex."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,7 +63,7 @@ packages = ["src/forgetforge"]
 # Ship setup assets inside the package so `forgetforge init` works from an
 # installed wheel; source checkouts fall back to these same repo-root paths.
 [tool.hatch.build.targets.wheel.force-include]
-"adapters" = "forgetforge/data/adapters"
+"adapters/hermes" = "forgetforge/data/adapters/hermes"
 "config.yaml.example" = "forgetforge/data/config.yaml.example"
 "src/forgetforge/doctor/catalog.json" = "forgetforge/doctor/catalog.json"
 
@@ -71,7 +71,11 @@ packages = ["src/forgetforge"]
 include = [
     "src/forgetforge",
     "rust/forgetforge_engine",
-    "adapters",
+    "adapters/hermes",
+    ".claude-plugin",
+    ".codex-plugin",
+    "commands",
+    "skills",
     "tests",
     "Docs",
     "README.md",

@@ -1,14 +1,14 @@
 # Installation
 
-## pip (모든 에이전트)
+## pip
 
 ```bash
 pip install cluxion-Agentplugin-AutoClearMemory
-forgetforge init --agents=all
+forgetforge init
 forgetforge check
 ```
 
-`forgetforge init` creates `~/.forgetforge/`, initializes the DB, copies packaged adapter assets under `~/.forgetforge/adapters/`, and installs `config.yaml` from the wheel's example config (never overwrites an existing config).
+`forgetforge init` creates `~/.forgetforge/`, initializes the DB, copies Hermes adapter notes under `~/.forgetforge/adapters/`, and installs `config.yaml` from the wheel's example config (never overwrites an existing config).
 
 데이터: `~/.forgetforge/` (`db.sqlite`, `config.yaml`, `archive/`).
 
@@ -32,11 +32,18 @@ hermes plugins enable forgetforge
 
 ## Claude Code
 
-`adapters/claude/skills/forgetforge/`를 skills 경로에 추가하거나, `adapters/claude/.claude-plugin/` manifest를 사용합니다.
+Install this repository as a Claude Code plugin. The root `.claude-plugin/plugin.json` exposes `commands/` and `skills/`; the host agent calls the `forgetforge` CLI.
 
 ## Codex
 
-`adapters/codex/mcp-snippet.toml`을 참고합니다. 연결된 AI는 `forgetforge` CLI를 터미널에서 호출합니다.
+Install this repository as a Codex marketplace plugin:
+
+```bash
+codex plugin marketplace add <path-to-marketplace-root>
+codex plugin add cluxion-agentplugin-autoclearmemory
+```
+
+The root `.codex-plugin/plugin.json` exposes `commands/` and `skills/`. The connected AI calls the `forgetforge` CLI:
 
 ```bash
 forgetforge recall docker

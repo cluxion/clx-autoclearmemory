@@ -82,6 +82,7 @@ def _parser() -> argparse.ArgumentParser:
     daemon = sub.add_parser("pruner-daemon", help="Run pruner on interval (background)")
     daemon.add_argument("--interval-hours", type=int, default=None)
     daemon.add_argument("--once", action="store_true", help="Run one cycle then exit")
+    daemon.add_argument("--max-cycles", type=int, default=24, help="Maximum cycles before exiting")
     brief = sub.add_parser("import-brief", help="Import preprocessing/supercoder brief into memory")
     brief.add_argument("--source", choices=["preprocessing", "supercoder", "manual"], required=True)
     brief.add_argument("--brief", required=True)
@@ -193,7 +194,11 @@ def _store(args: argparse.Namespace) -> int:
 
 
 def _pruner_daemon(args: argparse.Namespace) -> int:
-    pruner.run_pruner_daemon(interval_hours=args.interval_hours, run_once=bool(args.once))
+    pruner.run_pruner_daemon(
+        interval_hours=args.interval_hours,
+        run_once=bool(args.once),
+        max_cycles=int(args.max_cycles),
+    )
     return 0
 
 

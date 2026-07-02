@@ -36,21 +36,20 @@ def test_check_reports_isolated_home(capsys: pytest.CaptureFixture[str], tmp_pat
 
 
 def test_init_creates_layout_and_installs_assets(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
-    code, payload = _run(capsys, "init", "--agents", "hermes,claude")
+    code, payload = _run(capsys, "init", "--agents", "hermes")
     assert code == 0
     assert (tmp_path / "db.sqlite").exists()
     assert (tmp_path / "archive").is_dir()
     assert payload["config_created"] is True
     assert (tmp_path / "config.yaml").exists()
-    assert sorted(payload["agents"]) == ["claude", "hermes"]
+    assert sorted(payload["agents"]) == ["hermes"]
     assert (tmp_path / "adapters" / "hermes" / "README.md").exists()
-    assert (tmp_path / "adapters" / "claude" / ".claude-plugin" / "plugin.json").exists()
 
 
 def test_init_all_includes_every_known_agent(capsys: pytest.CaptureFixture[str]) -> None:
     code, payload = _run(capsys, "init")
     assert code == 0
-    assert sorted(payload["agents"]) == ["claude", "codex", "hermes"]
+    assert sorted(payload["agents"]) == ["hermes"]
 
 
 def test_init_never_overwrites_existing_config(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:

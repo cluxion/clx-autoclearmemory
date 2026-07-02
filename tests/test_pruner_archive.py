@@ -63,6 +63,16 @@ def test_pruner_noop_writes_nothing(tmp_path: Path, monkeypatch):
     conn.close()
 
 
+def test_pruner_daemon_stops_at_max_cycles(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    sleeps: list[int] = []
+    monkeypatch.setattr(pruner.time, "sleep", sleeps.append)
+
+    pruner.run_pruner_daemon(interval_hours=1, max_cycles=2)
+
+    assert sleeps == [3600]
+
+
 def test_write_cold_archive_single_still_works(tmp_path: Path, monkeypatch):
     _, cfg = _isolated_conn(tmp_path, monkeypatch)
     result = archive.write_cold_archive(cfg, memory_id="legacy", content="legacy body", retention=0.2, tier="cold")

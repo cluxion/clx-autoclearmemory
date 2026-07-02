@@ -11,7 +11,7 @@
 |------|------|
 | **Rust** (`forgetforge-engine`) | Retention scoring, tier decision |
 | **Python** (`forgetforge`) | SQLite, recall tracker, pruner, CLI |
-| **Agent adapter** | Hermes plugin, Claude skill, Codex CLI 가이드 |
+| **Agent surfaces** | Hermes entry point, root Codex/Claude plugin commands and skill |
 
 ## 데이터 흐름
 
