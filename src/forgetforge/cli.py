@@ -135,6 +135,23 @@ def _usage_error(message: str, *, error: str = "invalid_argument", hint: str = "
     return 2
 
 
+def _domain_error(error: str, message: str, hint: str) -> int:
+    print(json.dumps({"ok": False, "error": error, "message": message, "hint": hint}, ensure_ascii=False))
+    return 1
+
+
+def _storage_error(e: Exception) -> int:
+    return _domain_error("storage_error", str(e), "check FORGETFORGE_HOME and database permissions")
+
+
+def _memory_not_found(memory_id: str) -> int:
+    return _domain_error("memory_not_found", f"memory not found: {memory_id}", "check memory_id or run list-forgotten")
+
+
+def _key_error(e: KeyError) -> int:
+    return _domain_error("memory_not_found", str(e).strip("'\""), "check memory_id or run list-forgotten")
+
+
 def _read_text_argument(name: str, value: str | None, file_path: str | None) -> str:
     option = f"--{name}"
     file_option = f"--{name}-file"
@@ -214,9 +231,12 @@ def _recall(args: argparse.Namespace) -> int:
             payload = store.recall_with_feedback(conn, str(args.query))
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
-    except (sqlite3.Error, OSError, FileExistsError) as e:
-        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
-        return 1
+    except ValueError as e:
+        return _usage_error(str(e))
+    except KeyError as e:
+        return _key_error(e)
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
 
 
 def _store(args: argparse.Namespace) -> int:
@@ -236,9 +256,8 @@ def _store(args: argparse.Namespace) -> int:
         return 0
     except ValueError as e:
         return _usage_error(str(e))
-    except (sqlite3.Error, OSError, FileExistsError) as e:
-        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
-        return 1
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
 
 
 def _pruner_daemon(args: argparse.Namespace) -> int:
@@ -274,9 +293,8 @@ def _import_brief(args: argparse.Namespace) -> int:
         return 0
     except ValueError as e:
         return _usage_error(str(e))
-    except (sqlite3.Error, OSError, FileExistsError) as e:
-        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
-        return 1
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
 
 
 def _hot_context(args: argparse.Namespace) -> int:
@@ -292,11 +310,16 @@ def _keep(args: argparse.Namespace) -> int:
         cfg = load_config()
         with closing(db.connect(cfg.db_path)) as conn:
             ok = db.mark_keep_forever(conn, str(args.memory_id))
+        if not ok:
+            return _memory_not_found(str(args.memory_id))
         print(json.dumps({"ok": ok, "memory_id": args.memory_id}, ensure_ascii=False))
-        return 0 if ok else 1
-    except (sqlite3.Error, OSError, FileExistsError) as e:
-        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
-        return 1
+        return 0
+    except ValueError as e:
+        return _usage_error(str(e))
+    except KeyError as e:
+        return _key_error(e)
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
 
 
 def _forget(args: argparse.Namespace) -> int:
@@ -304,11 +327,16 @@ def _forget(args: argparse.Namespace) -> int:
         cfg = load_config()
         with closing(db.connect(cfg.db_path)) as conn:
             result = db.mark_forget(conn, str(args.memory_id), force=bool(args.force))
+        if not result.get("ok") and result.get("reason") == "memory not found":
+            return _memory_not_found(str(args.memory_id))
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get("ok") else 1
-    except (sqlite3.Error, OSError, FileExistsError) as e:
-        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
-        return 1
+    except ValueError as e:
+        return _usage_error(str(e))
+    except KeyError as e:
+        return _key_error(e)
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
 
 
 def _unforget(args: argparse.Namespace) -> int:
@@ -316,11 +344,16 @@ def _unforget(args: argparse.Namespace) -> int:
         cfg = load_config()
         with closing(db.connect(cfg.db_path)) as conn:
             result = db.unforget(conn, str(args.memory_id))
+        if not result.get("ok") and result.get("reason") == "memory not found":
+            return _memory_not_found(str(args.memory_id))
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get("ok") else 1
-    except (sqlite3.Error, OSError, FileExistsError) as e:
-        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
-        return 1
+    except ValueError as e:
+        return _usage_error(str(e))
+    except KeyError as e:
+        return _key_error(e)
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
 
 
 def _list_forgotten(args: argparse.Namespace) -> int:
@@ -343,9 +376,8 @@ def _list_forgotten(args: argparse.Namespace) -> int:
             )
         )
         return 0
-    except (sqlite3.Error, OSError, FileExistsError) as e:
-        print(json.dumps({'ok': False, 'error': str(e), 'error_type': type(e).__name__}, ensure_ascii=False))
-        return 1
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
 
 
 def _prune() -> int:

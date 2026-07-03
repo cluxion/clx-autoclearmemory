@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from stat import S_IMODE
 
 from forgetforge import archive, db, pruner, recall, store
 from forgetforge.config import load_config
@@ -77,8 +78,12 @@ def test_write_cold_archive_single_still_works(tmp_path: Path, monkeypatch):
     _, cfg = _isolated_conn(tmp_path, monkeypatch)
     result = archive.write_cold_archive(cfg, memory_id="legacy", content="legacy body", retention=0.2, tier="cold")
     assert result["format"] in {"parquet", "jsonl"}
-    assert (cfg.archive_dir / "legacy.txt").exists()
-    assert (cfg.archive_dir / "cold_archive.jsonl").exists()
+    paths = [cfg.archive_dir / "legacy.txt", cfg.archive_dir / "cold_archive.jsonl"]
+    if result["parquet"]:
+        paths.append(Path(result["parquet"]))
+    for path in paths:
+        assert path.exists()
+        assert S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_write_cold_archive_batch_empty_is_noop(tmp_path: Path, monkeypatch):

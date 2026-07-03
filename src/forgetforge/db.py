@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -7,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 _initialized_db_paths: set[str] = set()
+
+_PRIVATE_DIR_MODE = 0o700
+_PRIVATE_FILE_MODE = 0o600
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -61,16 +65,37 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
     # str paths crashed here in live use (same footgun as the prep guard
     # daemon); accept both like the rest of the public surface.
     db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.row_factory = sqlite3.Row
-    path_key = str(db_path.resolve())
-    if path_key not in _initialized_db_paths:
-        conn.executescript(SCHEMA)
-        _ensure_fts(conn)
-        _initialized_db_paths.add(path_key)
+    _secure_home_dir(db_path.parent)
+    old_umask = os.umask(0o077)
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.row_factory = sqlite3.Row
+            path_key = str(db_path.resolve())
+            if path_key not in _initialized_db_paths:
+                conn.executescript(SCHEMA)
+                _ensure_fts(conn)
+                _initialized_db_paths.add(path_key)
+            _secure_db_files(db_path)
+        except Exception:
+            conn.close()
+            raise
+    finally:
+        os.umask(old_umask)
     return conn
+
+
+def _secure_home_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
+    path.chmod(_PRIVATE_DIR_MODE)
+
+
+def _secure_db_files(db_path: Path) -> None:
+    for path in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+        if path.exists():
+            path.chmod(_PRIVATE_FILE_MODE)
 
 
 def _ensure_fts(conn: sqlite3.Connection) -> dict[str, int]:

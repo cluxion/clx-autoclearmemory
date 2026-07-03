@@ -1,6 +1,11 @@
 from pathlib import Path
+from stat import S_IMODE
 
 from forgetforge import db, recall
+
+
+def _mode(path: Path) -> int:
+    return S_IMODE(path.stat().st_mode)
 
 
 def test_recall_records_retrieval(tmp_path: Path, monkeypatch):
@@ -73,3 +78,18 @@ def test_connect_initializes_distinct_paths(tmp_path: Path, monkeypatch):
     assert db.get_memory(conn_b, "b") is not None
     conn_a.close()
     conn_b.close()
+
+
+def test_connect_secures_fresh_home_db_and_wal_files(tmp_path: Path, monkeypatch):
+    home = tmp_path / "fresh-home"
+    monkeypatch.setenv("FORGETFORGE_HOME", str(home))
+    db_path = home / "db.sqlite"
+
+    conn = db.connect(db_path)
+    db.upsert_memory(conn, memory_id="private", content="secret-bearing memory")
+
+    assert _mode(home) == 0o700
+    for path in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+        assert path.exists()
+        assert _mode(path) == 0o600
+    conn.close()

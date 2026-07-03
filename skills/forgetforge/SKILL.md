@@ -28,7 +28,10 @@ forgetforge check
 Rules:
 
 1. Read recall JSON before using a memory in your response.
-2. If recall returns no matches, do not invent remembered facts.
-3. If store returns `contradiction_warnings`, tell the user what conflicts and ask how to reconcile.
-4. Hermes also exposes the same behavior through `forgetforge_*` tools and hot-context injection.
-5. Slash commands available in Codex and Claude Code: `/forgetforge-recall`, `/forgetforge-status`, `/forgetforge-doctor`.
+2. Recall returns at most 20 matches by default.
+3. If recall returns no matches, do not invent remembered facts.
+4. Default recall searches `forget_requested = 0`; soft-forgotten cold memories are excluded and recoverable with `forgetforge list-forgotten` + `forgetforge unforget <id>`. Pruner cold-tier rows still recall while active in DB.
+5. If store returns `contradiction_warnings`, tell the user what conflicts and ask how to reconcile.
+6. `forgetforge doctor --json` on an uninitialized home reports `degraded` and exits 1 by design.
+7. Hermes also exposes the same behavior through `forgetforge_*` tools and hot-context injection.
+8. Slash commands available in Codex and Claude Code: `/forgetforge-recall`, `/forgetforge-status`, `/forgetforge-doctor`.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -117,3 +118,22 @@ def test_resolve_backend_is_cached(monkeypatch):
         assert b == "python"
 
     assert call_count <= 1, f"shutil.which called {call_count} times, expected <=1"
+
+
+def test_subprocess_backend_timeout_falls_back_to_python(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    def timeout_run(*args, **kwargs):
+        seen["timeout"] = kwargs.get("timeout")
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+
+    monkeypatch.setenv(rust_bridge.ENGINE_BACKEND_ENV, "subprocess")
+    monkeypatch.setattr(rust_bridge, "_binary_available", lambda: True)
+    monkeypatch.setattr(rust_bridge, "_binary", lambda: "forgetforge-engine")
+    monkeypatch.setattr(rust_bridge.subprocess, "run", timeout_run)
+    rust_bridge._backend_cache = None
+    rust_bridge._env_snapshot = None
+
+    payload = {"days_since_recall": 3.0, "retrieval_count": 2.0, "importance": 0.5, "frequency": 0.2}
+    assert rust_bridge.compute_retention(**payload) == rust_bridge._python_retention(payload)
+    assert seen["timeout"] == 30

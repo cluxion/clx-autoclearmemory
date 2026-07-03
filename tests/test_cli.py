@@ -123,11 +123,31 @@ def test_keep_and_forget_exit_codes(capsys: pytest.CaptureFixture[str]) -> None:
     _run(capsys, "store", "m-keep", "--content", "remember me")
     code, payload = _run(capsys, "keep", "m-keep")
     assert code == 0 and payload["ok"] is True
-    assert _run(capsys, "keep", "missing")[0] == 1
+    code, payload = _run(capsys, "keep", "missing")
+    assert code == 1
+    assert payload == {
+        "ok": False,
+        "error": "memory_not_found",
+        "message": "memory not found: missing",
+        "hint": "check memory_id or run list-forgotten",
+    }
     code, payload = _run(capsys, "forget", "m-keep")
     assert code == 1 and payload["ok"] is False
     assert payload["reason"] == "kept memory cannot be forgotten"
-    assert _run(capsys, "forget", "missing")[0] == 1
+    code, payload = _run(capsys, "forget", "missing")
+    assert code == 1
+    assert payload["error"] == "memory_not_found"
+
+
+def test_unforget_missing_memory_uses_error_contract(capsys: pytest.CaptureFixture[str]) -> None:
+    code, payload = _run(capsys, "unforget", "missing")
+    assert code == 1
+    assert payload == {
+        "ok": False,
+        "error": "memory_not_found",
+        "message": "memory not found: missing",
+        "hint": "check memory_id or run list-forgotten",
+    }
 
 
 def test_forget_unforget_and_list_forgotten_cli(capsys: pytest.CaptureFixture[str]) -> None:
@@ -228,6 +248,36 @@ def test_import_brief_reads_brief_from_file_and_stdin(
     assert recalled["count"] == 2
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("recall", "x"),
+        ("keep", "x"),
+        ("forget", "x"),
+        ("unforget", "x"),
+        ("list-forgotten",),
+        ("import-brief", "--source", "manual", "--brief", "x"),
+    ],
+)
+def test_cli_handlers_report_storage_errors(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    argv: tuple[str, ...],
+) -> None:
+    def fail_connect(_path):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(cli.db, "connect", fail_connect)
+    code, payload = _run(capsys, *argv)
+    assert code == 1
+    assert payload == {
+        "ok": False,
+        "error": "storage_error",
+        "message": "permission denied",
+        "hint": "check FORGETFORGE_HOME and database permissions",
+    }
+
+
 def test_status_reports_stats_and_backend(capsys: pytest.CaptureFixture[str]) -> None:
     _run(capsys, "store", "m-s", "--content", "anything")
     code, payload = _run(capsys, "status")
@@ -248,5 +298,6 @@ def test_store_against_directory_db_returns_clean_error_json(capsys: pytest.Capt
     assert code != 0
     payload = json.loads(out)
     assert payload["ok"] is False
-    assert "error" in payload
-    assert "error_type" in payload
+    assert payload["error"] == "storage_error"
+    assert "message" in payload
+    assert "error_type" not in payload

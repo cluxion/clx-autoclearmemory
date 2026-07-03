@@ -161,13 +161,17 @@ def _invoke_native(command: str, payload: dict[str, Any]) -> dict[str, Any] | No
 def _invoke_subprocess(command: str, payload: dict[str, Any]) -> dict[str, Any] | None:
     if not _binary_available():
         return None
-    completed = subprocess.run(
-        [_binary(), command],
-        input=json.dumps(payload),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [_binary(), command],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     if completed.returncode != 0:
         return None
     try:
