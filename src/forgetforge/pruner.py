@@ -6,7 +6,7 @@ import os
 import time
 from typing import Any
 
-from forgetforge import archive, db, recall, rust_bridge
+from forgetforge import archive, db, graph, recall, rust_bridge
 from forgetforge.config import ForgetForgeConfig, load_config
 
 
@@ -60,12 +60,14 @@ def run_pruner(conn, config: ForgetForgeConfig | None = None) -> dict[str, Any]:
         max_age_days=cfg.retrieval_events_max_age_days,
         max_per_memory=cfg.retrieval_events_max_per_memory,
     )
+    ttl_swept = graph.sweep_expired(conn)
     return {
         "ok": True,
         "demoted_to_cold": demoted,
         "promoted_from_cold": promoted,
         "interval_hours": cfg.pruner_interval_hours,
         "retrieval_events_gc": retrieval_gc,
+        "ttl_swept": ttl_swept,
     }
 
 

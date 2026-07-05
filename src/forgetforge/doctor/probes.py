@@ -125,6 +125,40 @@ def toolset_valid(ctx: DoctorContext) -> tuple[str, str]:
         return "fail", f"run error: {e}"
 
 
+@_register("graph_bounds_enforced")
+def graph_bounds_enforced(ctx: DoctorContext) -> tuple[str, str]:
+    """The graph hot path must stay bounded: a cycle must terminate and never exceed VISIT_CAP.
+    Guards against the infinite-load / slowdown failure class."""
+    try:
+        import sqlite3
+
+        from forgetforge import graph
+
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(
+            "CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT, tier TEXT DEFAULT 'warm_episodic',"
+            " importance REAL DEFAULT 0.5, created_at TEXT, updated_at TEXT, keep_forever INTEGER DEFAULT 0,"
+            " forget_requested INTEGER DEFAULT 0);"
+            "CREATE VIRTUAL TABLE memories_fts USING fts5(memory_id UNINDEXED, content, tokenize='porter');"
+        )
+        graph.ensure_graph_schema(conn)
+        graph.ingest(
+            conn,
+            [{"id": x, "content": x, "domain_tags": "c"} for x in ("A", "B", "C")],
+            [
+                {"src": "A", "dst": "B", "rel": "relates_to"},
+                {"src": "B", "dst": "C", "rel": "relates_to"},
+                {"src": "C", "dst": "A", "rel": "relates_to"},
+            ],
+        )
+        visited = graph._bounded_bfs(conn, ["A"])
+        if len(visited) <= graph.VISIT_CAP and graph.HOPS <= 2 and graph.FANOUT <= 6:
+            return "pass", f"bounded: hops={graph.HOPS} fanout={graph.FANOUT} visit_cap={graph.VISIT_CAP}"
+        return "fail", f"bounds exceeded: visited={len(visited)}"
+    except Exception as e:
+        return "fail", f"graph bounds probe error: {e}"
+
+
 @_register("install_integrity")
 def install_integrity(ctx: DoctorContext) -> tuple[str, str]:
     try:
@@ -154,7 +188,6 @@ def native_module_importable(ctx: DoctorContext) -> tuple[str, str]:
 def handler_exception_coverage(ctx: DoctorContext) -> tuple[str, str]:
     try:
         import json
-
 
         class _TestCtx:
             def __init__(self):
@@ -189,6 +222,7 @@ def pyarrow_available_for_archive(ctx: DoctorContext) -> tuple[str, str]:
     try:
         import pyarrow
         import pyarrow.parquet as pq  # noqa: F401
+
         return "pass", f"pyarrow {pyarrow.__version__}"
     except Exception:
         return "warn", "optional, not installed"
@@ -213,6 +247,7 @@ def wal_mode_enabled(ctx: DoctorContext) -> tuple[str, str]:
     # real check on actual db if exists, else skip (uncertainty)
     try:
         from forgetforge.config import default_home
+
         home = default_home()
         db_path = home / "db.sqlite"
         if not db_path.exists():
@@ -233,6 +268,7 @@ def wal_mode_enabled(ctx: DoctorContext) -> tuple[str, str]:
 def forgetforge_home_env_valid(ctx: DoctorContext) -> tuple[str, str]:
     try:
         from forgetforge.config import default_home
+
         home = default_home()
         # check if can create subdir (real check)
         test_sub = home / ".doctor_probe"
@@ -247,6 +283,7 @@ def forgetforge_home_env_valid(ctx: DoctorContext) -> tuple[str, str]:
 def config_file_loadable(ctx: DoctorContext) -> tuple[str, str]:
     try:
         from forgetforge.config import default_home
+
         cfg_path = default_home() / "config.yaml"
         if not cfg_path.exists():
             return "skip", "config not present (uses defaults)"
@@ -301,10 +338,7 @@ def database_schema_current(ctx: DoctorContext) -> tuple[str, str]:
     try:
         conn = _connect_readonly(db_path)
         try:
-            memory_cols = {
-                str(row[1])
-                for row in conn.execute("PRAGMA table_info(memories)").fetchall()
-            }
+            memory_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(memories)").fetchall()}
             missing = sorted(_EXPECTED_MEMORY_COLUMNS - memory_cols)
             if missing:
                 return "fail", f"memories missing columns: {', '.join(missing)}"

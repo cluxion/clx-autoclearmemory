@@ -466,5 +466,22 @@
     ],
     "change_robust": "Exit codes are part of CLI contract; tested independently of Hermes. Check after each plugin update.",
     "detection_method": "Run each CLI command with valid and invalid args; capture exit code; verify error messages to stderr"
+  },
+  {
+    "check_id": "graph_bounds_enforced",
+    "category": "graph_backend",
+    "severity": "high",
+    "what_it_checks": "graph hot-path recall is bounded (hops<=2, fanout<=6, visit_cap) and a cyclic graph terminates",
+    "failure_symptom": "Cross-session graph recall could hang or slow the leader (infinite-load / slowdown class)",
+    "likely_causes": [
+      "HOPS/FANOUT/VISIT_CAP raised without re-benchmark",
+      "BFS visited-set regressed"
+    ],
+    "fix_steps": [
+      "Keep graph.HOPS<=2, graph.FANOUT<=6, graph.VISIT_CAP bounded",
+      "Run: python -m pytest tests/test_graph.py -k 'infinite or slowdown or fanout'"
+    ],
+    "change_robust": true,
+    "detection_method": "in-process cyclic-graph BFS bound assertion"
   }
 ]

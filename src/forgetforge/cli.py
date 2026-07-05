@@ -9,7 +9,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from forgetforge import __version__, db, hot_inject, import_brief, init_assets, pruner, rust_bridge, store
+from forgetforge import __version__, db, graph, hot_inject, import_brief, init_assets, pruner, rust_bridge, store
 from forgetforge.config import default_home, load_config
 from forgetforge.doctor import render_json, render_text, run_doctor
 from forgetforge.doctor.framework import load_catalog
@@ -61,6 +61,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _import_brief(args)
     if args.command == "hot-context":
         return _hot_context(args)
+    if args.command == "graph-ingest":
+        return _graph_ingest(args)
+    if args.command == "graph-recall":
+        return _graph_recall(args)
+    if args.command == "graph-expire-session":
+        return _graph_expire_session(args)
     if args.command == "doctor":
         return _doctor(args)
     parser.print_help(sys.stderr)
@@ -92,6 +98,16 @@ def _parser(*, json_errors: bool = False) -> argparse.ArgumentParser:
     list_forgotten = sub.add_parser("list-forgotten", help="List soft-forgotten memories for recovery")
     list_forgotten.add_argument("--limit", type=int, default=100)
     sub.add_parser("prune", help="Run background pruner once")
+    gi = sub.add_parser("graph-ingest", help="Ingest graph nodes+edges from stdin JSON (cold path)")
+    gi.add_argument("--stdin", action="store_true", help="Read {nodes, edges} JSON from stdin")
+    gr = sub.add_parser("graph-recall", help="Bounded subgraph recall (hot path, deterministic)")
+    gr.add_argument("--anchor", default="", help="FTS anchor tags")
+    gr.add_argument("--session", default=None, help="Recall an episodic session's nodes")
+    gr.add_argument("--mistakes", action="store_true", help="Restrict seeds to mistake nodes")
+    gr.add_argument("--limit", type=int, default=graph.LIMIT)
+    ge = sub.add_parser("graph-expire-session", help="TTL-cascade a deleted leader session")
+    ge.add_argument("session_id")
+    ge.add_argument("--grace-days", type=int, default=1)
     store_cmd = sub.add_parser("store", help="Store or update a memory")
     store_cmd.add_argument("memory_id")
     store_cmd.add_argument("--content", default=None, help="Content text, or '-' to read stdin")
@@ -203,6 +219,7 @@ def _init(args: argparse.Namespace) -> int:
 
 def _status() -> int:
     from forgetforge import recall
+
     cfg = load_config()
     with closing(db.connect(cfg.db_path)) as conn:
         stats = db.memory_stats(conn)
@@ -239,6 +256,50 @@ def _recall(args: argparse.Namespace) -> int:
         return _storage_error(e)
 
 
+def _graph_ingest(args: argparse.Namespace) -> int:
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+        nodes = payload.get("nodes", []) if isinstance(payload, dict) else []
+        edges = payload.get("edges", []) if isinstance(payload, dict) else []
+        cfg = load_config()
+        with closing(db.connect(cfg.db_path)) as conn:
+            result = graph.ingest(conn, nodes, edges)
+        print(json.dumps({"ok": True, **result}, ensure_ascii=False))
+        return 0
+    except json.JSONDecodeError as e:
+        return _usage_error(f"invalid JSON on stdin: {e}")
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
+
+
+def _graph_recall(args: argparse.Namespace) -> int:
+    try:
+        cfg = load_config()
+        with closing(db.connect(cfg.db_path)) as conn:
+            rows = graph.graph_recall(
+                conn,
+                anchor_tags=str(args.anchor),
+                session=args.session,
+                mistakes=bool(args.mistakes),
+                limit=int(args.limit),
+            )
+        print(json.dumps({"ok": True, "nodes": rows}, ensure_ascii=False, indent=2))
+        return 0
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
+
+
+def _graph_expire_session(args: argparse.Namespace) -> int:
+    try:
+        cfg = load_config()
+        with closing(db.connect(cfg.db_path)) as conn:
+            marked = graph.expire_session(conn, str(args.session_id), grace_days=int(args.grace_days))
+        print(json.dumps({"ok": True, "marked": marked}, ensure_ascii=False))
+        return 0
+    except (sqlite3.Error, OSError) as e:
+        return _storage_error(e)
+
+
 def _store(args: argparse.Namespace) -> int:
     try:
         content = _read_text_argument("content", args.content, args.content_file)
@@ -270,7 +331,12 @@ def _pruner_daemon(args: argparse.Namespace) -> int:
     except ValueError as e:
         print(
             json.dumps(
-                {"ok": False, "error": "invalid_argument", "message": str(e), "hint": "use --max-cycles >= 1 and --interval-hours >= 1"},
+                {
+                    "ok": False,
+                    "error": "invalid_argument",
+                    "message": str(e),
+                    "hint": "use --max-cycles >= 1 and --interval-hours >= 1",
+                },
                 ensure_ascii=False,
             )
         )
@@ -367,7 +433,12 @@ def _list_forgotten(args: argparse.Namespace) -> int:
                     "ok": True,
                     "count": len(rows),
                     "memories": [
-                        {"memory_id": row.id, "content": row.content, "tier": row.tier, "keep_forever": row.keep_forever}
+                        {
+                            "memory_id": row.id,
+                            "content": row.content,
+                            "tier": row.tier,
+                            "keep_forever": row.keep_forever,
+                        }
                         for row in rows
                     ],
                 },

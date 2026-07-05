@@ -35,3 +35,13 @@ Rules:
 6. `forgetforge doctor --json` on an uninitialized home reports `degraded` and exits 1 by design.
 7. Hermes also exposes the same behavior through `forgetforge_*` tools and hot-context injection.
 8. Slash commands available in Codex and Claude Code: `/forgetforge-recall`, `/forgetforge-status`, `/forgetforge-doctor`.
+
+## Cross-session graph (v0.3.19+)
+
+One knowledge graph, three views — bounded and deterministic (no LLM on the hot path):
+
+- `forgetforge graph-ingest --stdin` — cold path. Feed `{"nodes":[{id,content,node_type,session_id,domain_tags}],"edges":[{src,dst,rel}]}`. node_type: session|task|file|decision|mistake|entity. rel: touched|decided|failed_on|relates_to|supersedes|owns.
+- `forgetforge graph-recall --anchor "<tags>" [--session ID] [--mistakes] [--limit 8]` — HOT path. Returns only the bounded subgraph around the anchor (context savings), never the whole store. Guarantees: hops<=2, fanout<=6, <=8 rows, terminates on cycles.
+- `forgetforge graph-expire-session <id> [--grace-days 1]` — mark a deleted leader session's nodes for TTL cascade; the existing pruner sweeps them.
+
+Use `graph-recall --mistakes --anchor "<task domain>"` before non-trivial work to surface past mistakes for this domain (failure ontology). Use `graph-recall --anchor "<current task>"` to pull only the relevant prior-session context instead of loading everything.
