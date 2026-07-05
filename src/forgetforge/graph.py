@@ -70,12 +70,16 @@ def ingest(conn, nodes: list[dict], edges: list[dict]) -> dict[str, int]:
 
     A node dict: {id, content, node_type?, session_id?, domain_tags?, importance?}.
     An edge dict: {src, dst, rel, weight?}. Invalid rel/type is rejected, not raised.
+    Nodes beyond INGEST_NODE_CAP are dropped and counted in `skipped` (never silent) —
+    callers with more should chunk into <=INGEST_NODE_CAP batches.
     """
     ensure_graph_schema(conn)
+    skipped = 0
     if len(nodes) > INGEST_NODE_CAP:
+        skipped = len(nodes) - INGEST_NODE_CAP  # over-cap drop is reported, not hidden
         nodes = nodes[:INGEST_NODE_CAP]
     now = db.now_iso()  # same format as regular memories share this column
-    n_nodes = n_edges = skipped = 0
+    n_nodes = n_edges = 0
     for nd in nodes:
         nid = str(nd.get("id") or "").strip()
         if not nid:

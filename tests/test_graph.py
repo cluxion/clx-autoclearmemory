@@ -175,3 +175,12 @@ def test_recall_works_on_pre_extension_db(tmp_path):
     db._initialized_db_paths.discard(str(p.resolve()))
     conn = db.connect(p)  # must add node_type and not crash
     assert {m.id for m in db.list_hot_memories(conn, limit=10)} == {"leg"}
+
+
+def test_over_cap_ingest_reports_dropped_not_silent(tmp_path):
+    # >INGEST_NODE_CAP nodes in one call: excess dropped but COUNTED in skipped (never silent)
+    conn = _fresh(tmp_path)
+    over = graph.INGEST_NODE_CAP + 25
+    res = graph.ingest(conn, [{"id": f"n{i}", "content": f"c{i}"} for i in range(over)], [])
+    assert res["nodes"] == graph.INGEST_NODE_CAP
+    assert res["skipped"] == 25  # the drop is reported, not hidden as 0
