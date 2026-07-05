@@ -258,7 +258,7 @@ def _recall(args: argparse.Namespace) -> int:
 
 def _graph_ingest(args: argparse.Namespace) -> int:
     try:
-        payload = json.loads(sys.stdin.read() or "{}")
+        payload = json.loads(sys.stdin.read().strip() or "{}")
         nodes = payload.get("nodes", []) if isinstance(payload, dict) else []
         edges = payload.get("edges", []) if isinstance(payload, dict) else []
         cfg = load_config()

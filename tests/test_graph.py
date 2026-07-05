@@ -134,3 +134,10 @@ def test_mistake_recall_routes_by_domain_tags(tmp_path):
     )
     out = graph.graph_recall(conn, anchor_tags="graph", mistakes=True)
     assert [n["id"] for n in out] == ["m1"]
+
+
+def test_blank_stdin_is_noop_not_error(tmp_path):
+    # whitespace-only ingest payload = ingest nothing, never an error
+    conn = _fresh(tmp_path)
+    res = graph.ingest(conn, [], [])
+    assert res == {"nodes": 0, "edges": 0, "skipped": 0}
