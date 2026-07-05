@@ -141,3 +141,37 @@ def test_blank_stdin_is_noop_not_error(tmp_path):
     conn = _fresh(tmp_path)
     res = graph.ingest(conn, [], [])
     assert res == {"nodes": 0, "edges": 0, "skipped": 0}
+
+
+def test_graph_nodes_do_not_pollute_normal_recall(tmp_path):
+    # organic-connection bug: graph structure nodes must NOT leak into memory recall/hot-context
+    conn = _fresh(tmp_path)
+    db.upsert_memory(conn, memory_id="real", content="user prefers dark mode")
+    graph.ingest(
+        conn,
+        [{"id": "s1:t", "content": "build graph layer", "node_type": "task", "session_id": "s1"},
+         {"id": "s1:f", "content": "graph.py file", "node_type": "file"}],
+        [],
+    )
+    hits = {m.id for m in db.search_memories(conn, "graph")}
+    assert "s1:t" not in hits and "s1:f" not in hits  # structure nodes excluded
+    hot = {m.id for m in db.list_hot_memories(conn, limit=20)}
+    assert "s1:t" not in hot and "s1:f" not in hot
+    # a real memory is still recallable, and graph-recall still sees the nodes
+    assert graph.graph_recall(conn, session="s1")  # graph view unaffected
+
+
+def test_recall_works_on_pre_extension_db(tmp_path):
+    # a DB whose file predates the graph columns must not crash recall (connect migrates it)
+    p = tmp_path / "legacy.db"
+    c = sqlite3.connect(p)
+    c.executescript(db.SCHEMA)
+    c.execute(
+        "INSERT INTO memories (id, content, tier, importance, created_at, updated_at) "
+        "VALUES ('leg', 'legacy note', 'hot', 0.5, '2020-01-01', '2020-01-01')"
+    )
+    c.commit()
+    c.close()
+    db._initialized_db_paths.discard(str(p.resolve()))
+    conn = db.connect(p)  # must add node_type and not crash
+    assert {m.id for m in db.list_hot_memories(conn, limit=10)} == {"leg"}

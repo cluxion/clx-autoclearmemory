@@ -77,6 +77,11 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
             if path_key not in _initialized_db_paths:
                 conn.executescript(SCHEMA)
                 _ensure_fts(conn)
+                # graph columns (node_type etc.) are required by the retrieval queries,
+                # so every connection must have them — not just graph-command paths.
+                from forgetforge import graph
+
+                graph.ensure_graph_schema(conn)
                 _initialized_db_paths.add(path_key)
             _secure_db_files(db_path)
         except Exception:
@@ -100,9 +105,7 @@ def _secure_db_files(db_path: Path) -> None:
 
 def _ensure_fts(conn: sqlite3.Connection) -> dict[str, int]:
     had_fts = (
-        conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories_fts' LIMIT 1"
-        ).fetchone()
+        conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories_fts' LIMIT 1").fetchone()
         is not None
     )
     conn.execute(
@@ -222,7 +225,7 @@ def search_memories(conn: sqlite3.Connection, query: str, *, limit: int = 20) ->
                 SELECT m.*
                 FROM memories_fts f
                 JOIN memories m ON m.id = f.memory_id
-                WHERE memories_fts MATCH ? AND m.forget_requested = 0
+                WHERE memories_fts MATCH ? AND m.forget_requested = 0 AND m.node_type = 'memory'
                 ORDER BY bm25(memories_fts)
                 LIMIT ?
                 """,
@@ -236,7 +239,7 @@ def search_memories(conn: sqlite3.Connection, query: str, *, limit: int = 20) ->
         cur = conn.execute(
             """
             SELECT * FROM memories
-            WHERE forget_requested = 0 AND content LIKE ?
+            WHERE forget_requested = 0 AND node_type = 'memory' AND content LIKE ?
             ORDER BY updated_at DESC
             LIMIT ?
             """,
@@ -257,7 +260,7 @@ def search_candidate_memories(conn: sqlite3.Connection, terms: set[str], *, limi
             SELECT m.*
             FROM memories_fts f
             JOIN memories m ON m.id = f.memory_id
-            WHERE memories_fts MATCH ? AND m.forget_requested = 0
+            WHERE memories_fts MATCH ? AND m.forget_requested = 0 AND m.node_type = 'memory'
             ORDER BY bm25(memories_fts)
             LIMIT ?
             """,
@@ -285,7 +288,7 @@ def list_hot_memories(conn: sqlite3.Connection, *, limit: int = 10) -> list[Memo
     cur = conn.execute(
         """
         SELECT * FROM memories
-        WHERE forget_requested = 0 AND tier = 'hot'
+        WHERE forget_requested = 0 AND tier = 'hot' AND node_type = 'memory'
         ORDER BY updated_at DESC
         LIMIT ?
         """,
