@@ -115,6 +115,7 @@
       "native package not installed"
     ],
     "fix_steps": [
+      "Build+install the native backend: cd <plugin-root> && uv pip install ./rust/forgetforge_engine --python .venv/bin/python (or pip install ./rust/forgetforge_engine)",
       "Run: python -c 'import forgetforge_engine_native'",
       "If ImportError, reinstall the bundled wheel; fallback keeps working meanwhile"
     ],

@@ -160,3 +160,13 @@ commands to call the same `forgetforge` CLI.
 ## License
 
 Apache-2.0
+
+## Native backend (optional, faster)
+
+The Rust backend is not built automatically. After install, run once:
+
+```bash
+uv pip install ./rust/forgetforge_engine --python .venv/bin/python
+```
+
+Without it the plugin falls back to a slower pure-Python path (`doctor` reports `native_module_importable`).
