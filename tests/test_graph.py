@@ -142,6 +142,29 @@ def test_mistake_recall_routes_by_domain_tags(tmp_path):
     assert [n["id"] for n in out] == ["m1"]
 
 
+def test_ingested_nodes_are_fts_content_anchored(tmp_path):
+    # regression: ingest skipped _fts_upsert, so a content-only anchor (no
+    # domain_tags to LIKE against) found nothing even with a literal match
+    conn = _fresh(tmp_path)
+    graph.ingest(
+        conn,
+        [{"id": "m-rule", "content": "RULE quantities are hard floors", "node_type": "mistake"}],
+        [],
+    )
+    out = graph.graph_recall(conn, anchor_tags="RULE", mistakes=True)
+    assert [n["id"] for n in out] == ["m-rule"]
+
+
+def test_sweep_expired_cleans_fts_index(tmp_path):
+    conn = _fresh(tmp_path)
+    graph.ingest(conn, [{"id": "tmp", "content": "ephemeral fts row", "session_id": "sx"}], [])
+    assert conn.execute("SELECT COUNT(*) FROM memories_fts WHERE memory_id = 'tmp'").fetchone()[0] == 1
+    conn.execute("UPDATE memories SET expire_at = 1 WHERE id = 'tmp'")
+    conn.commit()
+    assert graph.sweep_expired(conn) == 1
+    assert conn.execute("SELECT COUNT(*) FROM memories_fts WHERE memory_id = 'tmp'").fetchone()[0] == 0
+
+
 def test_blank_stdin_is_noop_not_error(tmp_path):
     # whitespace-only ingest payload = ingest nothing, never an error
     conn = _fresh(tmp_path)

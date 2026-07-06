@@ -115,6 +115,15 @@ def _parser(*, json_errors: bool = False) -> argparse.ArgumentParser:
     store_cmd.add_argument("--importance", type=float, default=0.5)
     store_cmd.add_argument("--frequency", type=float, default=0.0)
     store_cmd.add_argument("--procedural", action="store_true")
+    store_cmd.add_argument(
+        "--node-type",
+        default=None,
+        choices=sorted(graph.VALID_NODE_TYPES),
+        help="Graph node type; non-'memory' rows stay out of recall/hot paths (default: memory)",
+    )
+    store_cmd.add_argument(
+        "--expire-days", type=int, default=None, help="Hard-delete after N days via the pruner TTL sweep"
+    )
     daemon = sub.add_parser("pruner-daemon", help="Run pruner on interval (background)")
     daemon.add_argument("--interval-hours", type=int, default=None)
     daemon.add_argument("--once", action="store_true", help="Run one cycle then exit")
@@ -319,6 +328,8 @@ def _store(args: argparse.Namespace) -> int:
                 importance=float(args.importance),
                 frequency=float(args.frequency),
                 is_procedural=bool(args.procedural),
+                node_type=args.node_type,
+                expire_days=int(args.expire_days) if args.expire_days is not None else None,
             )
         print(json.dumps({"ok": True, "stored": stored}, ensure_ascii=False, indent=2))
         return 0

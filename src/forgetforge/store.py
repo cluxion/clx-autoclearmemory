@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
-from forgetforge import contradiction, db, rust_bridge
+from forgetforge import contradiction, db, graph, rust_bridge
 from forgetforge.config import load_config
 
 
@@ -15,14 +16,27 @@ def store_memory(
     frequency: float = 0.0,
     is_procedural: bool = False,
     check_contradictions: bool = True,
+    node_type: str | None = None,
+    expire_days: int | None = None,
 ) -> dict[str, Any]:
-    """Persist or update a memory. Connected AI calls this before recall."""
+    """Persist or update a memory. Connected AI calls this before recall.
+
+    node_type != 'memory' (e.g. 'session' archives) keeps the row out of
+    recall/hot-injection while graph paths can still reach it; expire_days
+    sets expire_at so the pruner's TTL sweep hard-deletes it later.
+    """
     memory_id = memory_id.strip()
     content = content.strip()
     if not memory_id:
         raise ValueError("memory_id is required")
     if not content:
         raise ValueError("content is required")
+    if node_type is not None and node_type not in graph.VALID_NODE_TYPES:
+        valid = ", ".join(sorted(graph.VALID_NODE_TYPES))
+        raise ValueError(f"invalid node_type: {node_type} (valid: {valid})")
+    if expire_days is not None and expire_days < 0:
+        raise ValueError("expire_days must be >= 0")
+    expire_at = int(time.time()) + int(expire_days) * 86400 if expire_days is not None else None
     warnings: list[dict[str, Any]] = []
     if check_contradictions:
         warnings = [
@@ -35,6 +49,8 @@ def store_memory(
         importance=max(0.0, min(1.0, importance)),
         frequency=max(0.0, min(1.0, frequency)),
         is_procedural=is_procedural,
+        node_type=node_type,
+        expire_at=expire_at,
     )
     decision = rust_bridge.decide_tier(
         days_since_recall=999.0,

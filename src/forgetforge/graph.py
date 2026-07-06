@@ -98,6 +98,7 @@ def ingest(conn, nodes: list[dict], edges: list[dict]) -> dict[str, int]:
         ntype = nd.get("node_type", "memory")
         if ntype not in VALID_NODE_TYPES:
             ntype = "memory"
+        content = str(nd.get("content", ""))
         conn.execute(
             """
             INSERT INTO memories (id, content, tier, importance, created_at, updated_at,
@@ -110,7 +111,7 @@ def ingest(conn, nodes: list[dict], edges: list[dict]) -> dict[str, int]:
             """,
             (
                 nid,
-                str(nd.get("content", "")),
+                content,
                 float(nd.get("importance", 0.5)),
                 now,
                 now,
@@ -119,6 +120,9 @@ def ingest(conn, nodes: list[dict], edges: list[dict]) -> dict[str, int]:
                 nd.get("domain_tags"),
             ),
         )
+        # mirror upsert_memory: without the FTS row, _seed_ids content anchors
+        # are blind to this node (mistake recall returned [] on real DBs)
+        db._fts_upsert(conn, nid, content)
         n_nodes += 1
     for ed in edges:
         if not isinstance(ed, dict):
@@ -266,5 +270,6 @@ def sweep_expired(conn) -> int:
     for nid in ids:
         conn.execute("DELETE FROM graph_edges WHERE src_id = ? OR dst_id = ?", (nid, nid))
         conn.execute("DELETE FROM memories WHERE id = ?", (nid,))
+        db._fts_delete(conn, nid)  # hard delete must not leave orphan index rows
     conn.commit()
     return len(ids)

@@ -113,6 +113,20 @@ def test_store_reads_content_from_file_and_stdin(
     assert {row["memory_id"] for row in recalled["results"]} == {"m-file", "m-stdin"}
 
 
+def test_store_session_node_type_skips_recall_but_graph_recalls(capsys: pytest.CaptureFixture[str]) -> None:
+    code, stored = _run(
+        capsys, "store", "sess-1", "--content", "quokka session archive", "--node-type", "session", "--expire-days", "1"
+    )
+    assert code == 0 and stored["ok"] is True
+    code, recalled = _run(capsys, "recall", "quokka")
+    assert code == 0 and recalled["count"] == 0
+    code, hot = _run(capsys, "hot-context")
+    assert code == 0 and "sess-1" not in hot["context"]
+    code, g = _run(capsys, "graph-recall", "--anchor", "quokka")
+    assert code == 0
+    assert [n["id"] for n in g["nodes"]] == ["sess-1"]
+
+
 def test_recall_miss_returns_actionable_hint(capsys: pytest.CaptureFixture[str]) -> None:
     code, payload = _run(capsys, "recall", "nothing-stored-yet")
     assert code == 0

@@ -111,10 +111,6 @@ def _secure_db_files(db_path: Path) -> None:
 
 
 def _ensure_fts(conn: sqlite3.Connection) -> dict[str, int]:
-    had_fts = (
-        conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='memories_fts' LIMIT 1").fetchone()
-        is not None
-    )
     conn.execute(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -125,22 +121,25 @@ def _ensure_fts(conn: sqlite3.Connection) -> dict[str, int]:
         """
     )
     conn.commit()
-    needs_backfill_probe = not had_fts
-    if not needs_backfill_probe:
-        has_memory = conn.execute("SELECT 1 FROM memories WHERE forget_requested = 0 LIMIT 1").fetchone()
-        if has_memory and conn.execute("SELECT 1 FROM memories_fts LIMIT 1").fetchone() is None:
-            needs_backfill_probe = True
+    # Backfill ANY row missing from the index, not just a fresh/empty index:
+    # graph.ingest historically skipped _fts_upsert, leaving real DBs partially
+    # un-indexed (memories > memories_fts) and content anchors blind to those
+    # nodes. NOT IN materializes the fts ids once, so a synced DB pays one
+    # cheap scan and backfills nothing.
     counts = {"backfilled": 0, "failed": 0}
-    if needs_backfill_probe:
-        existing = conn.execute("SELECT COUNT(*) AS c FROM memories_fts").fetchone()
-        memory_count = conn.execute("SELECT COUNT(*) AS c FROM memories WHERE forget_requested = 0").fetchone()
-        if existing and memory_count and int(existing["c"]) == 0 and int(memory_count["c"]) > 0:
-            for row in conn.execute("SELECT id, content FROM memories WHERE forget_requested = 0"):
-                try:
-                    _fts_upsert(conn, str(row["id"]), str(row["content"]))
-                    counts["backfilled"] += 1
-                except Exception:
-                    counts["failed"] += 1
+    missing = conn.execute(
+        """
+        SELECT id, content FROM memories
+        WHERE forget_requested = 0
+          AND id NOT IN (SELECT memory_id FROM memories_fts WHERE memory_id IS NOT NULL)
+        """
+    ).fetchall()
+    for row in missing:
+        try:
+            _fts_upsert(conn, str(row["id"]), str(row["content"]))
+            counts["backfilled"] += 1
+        except Exception:
+            counts["failed"] += 1
     return counts
 
 
@@ -176,21 +175,27 @@ def upsert_memory(
     frequency: float = 0.0,
     is_procedural: bool = False,
     keep_forever: bool = False,
+    node_type: str | None = None,
+    expire_at: int | None = None,
 ) -> MemoryRow:
     ts = now_iso()
+    # node_type/expire_at None = pre-flag behavior exactly: 'memory'/NULL on
+    # insert, existing values untouched on update (COALESCE against the row).
     conn.execute(
         """
         INSERT INTO memories (
             id, content, importance, frequency, is_procedural, keep_forever,
-            created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, node_type, expire_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'memory'), ?)
         ON CONFLICT(id) DO UPDATE SET
             content = excluded.content,
             importance = excluded.importance,
             frequency = excluded.frequency,
             is_procedural = excluded.is_procedural,
             keep_forever = excluded.keep_forever,
-            updated_at = excluded.updated_at
+            updated_at = excluded.updated_at,
+            node_type = COALESCE(?, node_type),
+            expire_at = COALESCE(?, expire_at)
         """,
         (
             memory_id,
@@ -201,6 +206,10 @@ def upsert_memory(
             int(keep_forever),
             ts,
             ts,
+            node_type,
+            expire_at,
+            node_type,
+            expire_at,
         ),
     )
     _fts_upsert(conn, memory_id, content)

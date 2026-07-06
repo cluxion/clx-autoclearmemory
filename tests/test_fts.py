@@ -46,3 +46,23 @@ def test_fts_backfill_continues_after_bad_row(tmp_path: Path, monkeypatch):
     assert counts == {"backfilled": 1, "failed": 1}
     assert conn.execute("SELECT memory_id FROM memories_fts").fetchall()[0]["memory_id"] == "good"
     conn.close()
+
+
+def test_fts_backfill_indexes_missing_rows_idempotently(tmp_path: Path, monkeypatch):
+    # regression: backfill used to run only when the index was completely empty,
+    # so partially un-indexed DBs (pre-fix graph.ingest rows) stayed broken
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    db.upsert_memory(conn, memory_id="indexed", content="already indexed row")
+    for i in range(2):
+        conn.execute(
+            "INSERT INTO memories (id, content, node_type, created_at, updated_at) "
+            "VALUES (?, ?, 'mistake', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')",
+            (f"gap{i}", f"unindexed ledger row {i}"),
+        )
+    conn.commit()
+    assert db._ensure_fts(conn) == {"backfilled": 2, "failed": 0}
+    assert db._ensure_fts(conn) == {"backfilled": 0, "failed": 0}  # idempotent, cheap no-op
+    ids = {row["memory_id"] for row in conn.execute("SELECT memory_id FROM memories_fts")}
+    assert {"indexed", "gap0", "gap1"} <= ids
+    conn.close()

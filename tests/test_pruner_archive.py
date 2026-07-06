@@ -120,6 +120,19 @@ def test_pruner_bounds_retrieval_events(tmp_path: Path, monkeypatch):
     conn.close()
 
 
+def test_prune_hard_deletes_expired_rows(tmp_path: Path, monkeypatch):
+    # the scheduled `forgetforge prune` must sweep TTL'd rows (session archives
+    # stored with --expire-days), not only demote by retention
+    conn, cfg = _isolated_conn(tmp_path, monkeypatch)
+    store.store_memory(conn, memory_id="ttl", content="expiring session archive", node_type="session", expire_days=1)
+    conn.execute("UPDATE memories SET expire_at = 1 WHERE id = 'ttl'")
+    conn.commit()
+    result = pruner.run_pruner(conn, config=cfg)
+    assert result["ttl_swept"] == 1
+    assert db.get_memory(conn, "ttl") is None
+    conn.close()
+
+
 def test_update_memory_tiers_batch(tmp_path: Path, monkeypatch):
     conn, _ = _isolated_conn(tmp_path, monkeypatch)
     for i in range(3):
