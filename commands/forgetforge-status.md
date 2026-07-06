@@ -1,5 +1,6 @@
 ---
 description: Show ForgetForge memory store status.
+disable-model-invocation: true
 ---
 
 Run:
