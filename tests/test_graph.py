@@ -184,3 +184,29 @@ def test_over_cap_ingest_reports_dropped_not_silent(tmp_path):
     res = graph.ingest(conn, [{"id": f"n{i}", "content": f"c{i}"} for i in range(over)], [])
     assert res["nodes"] == graph.INGEST_NODE_CAP
     assert res["skipped"] == 25  # the drop is reported, not hidden as 0
+
+
+def test_schema_race_duplicate_column_tolerated(tmp_path):
+    # two first-time writers race ensure_graph_schema: both check-then-ALTER on a fresh DB
+    # (real trigger: concurrent SessionEnd hooks each running `forgetforge store`)
+    conn = db.connect(tmp_path / "race.db")
+    stale = conn.execute("PRAGMA table_info(memories)").fetchall()  # pre-migration snapshot
+    graph.ensure_graph_schema(conn)  # writer A lands the columns first
+
+    class _StaleCheckConn:
+        # writer B: its missing-column check ran before A's ALTERs committed
+        def execute(self, sql, *args):
+            if sql.startswith("PRAGMA table_info"):
+                class _Cur:
+                    def fetchall(self):
+                        return stale
+
+                return _Cur()
+            return conn.execute(sql, *args)
+
+        def commit(self):
+            conn.commit()
+
+    graph.ensure_graph_schema(_StaleCheckConn())  # must swallow 'duplicate column name'
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)").fetchall()}
+    assert {"node_type", "session_id", "domain_tags", "expire_at"} <= cols

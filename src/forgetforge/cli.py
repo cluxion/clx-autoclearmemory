@@ -465,7 +465,7 @@ def _doctor(args: argparse.Namespace) -> int:
             pkg = "forgetforge.doctor"
             cat_path = Path(str(importlib.resources.files(pkg).joinpath("catalog.json")))
         except Exception:
-            cat_path = Path(__file__).parent.parent / "doctor" / "catalog.json"
+            cat_path = Path(__file__).parent / "doctor" / "catalog.json"
         result = run_doctor(
             cwd=Path.cwd(),
             catalog_path=cat_path,

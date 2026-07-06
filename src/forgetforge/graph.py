@@ -42,7 +42,13 @@ def ensure_graph_schema(conn) -> None:
     if "expire_at" not in cols:
         add.append("ALTER TABLE memories ADD COLUMN expire_at INTEGER")
     for stmt in add:
-        conn.execute(stmt)
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError as e:
+            # another writer added the column between our check and this ALTER
+            # (concurrent first-time `forgetforge store` calls, e.g. SessionEnd hooks)
+            if "duplicate column name" not in str(e):
+                raise
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS graph_edges (
