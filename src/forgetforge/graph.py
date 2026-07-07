@@ -145,8 +145,10 @@ def ingest(conn, nodes: list[dict], edges: list[dict]) -> dict[str, int]:
 def _seed_ids(conn, anchor_tags: str, session: str | None, mistakes: bool) -> list[str]:
     """FTS-anchored seeds, hard-capped at SEED_MAX. Falls back to LIKE if FTS errors."""
     if session:
+        # --mistakes must still restrict within a session (was silently ignored here)
+        where_type = "AND node_type = 'mistake'" if mistakes else ""
         rows = conn.execute(
-            "SELECT id FROM memories WHERE session_id = ? AND forget_requested = 0 LIMIT ?",
+            f"SELECT id FROM memories WHERE session_id = ? AND forget_requested = 0 {where_type} LIMIT ?",
             (session, SEED_MAX),
         ).fetchall()
         return [r[0] for r in rows]

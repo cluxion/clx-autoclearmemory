@@ -242,3 +242,33 @@ def test_schema_race_duplicate_column_tolerated(tmp_path):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)").fetchall()}
     assert {"node_type", "session_id", "domain_tags", "expire_at"} <= cols
     conn.close()
+
+
+def test_session_recall_still_honours_mistakes_filter(tmp_path):
+    # regression: the session branch of _seed_ids ignored --mistakes, leaking non-mistake nodes.
+    conn = _fresh(tmp_path)
+    graph.ingest(
+        conn,
+        [
+            {
+                "id": "m1",
+                "content": "python mistake off-by-one",
+                "node_type": "mistake",
+                "session_id": "s1",
+                "domain_tags": "python",
+            },
+            {
+                "id": "m2",
+                "content": "python plain note",
+                "node_type": "memory",
+                "session_id": "s1",
+                "domain_tags": "python",
+            },
+        ],
+        [],
+    )
+    with_mistakes = {r["id"] for r in graph.graph_recall(conn, anchor_tags="python", session="s1", mistakes=True)}
+    without = {r["id"] for r in graph.graph_recall(conn, anchor_tags="python", session="s1", mistakes=False)}
+    assert with_mistakes == {"m1"}  # --mistakes restricts within the session
+    assert without == {"m1", "m2"}  # unfiltered session recall unchanged
+    conn.close()
