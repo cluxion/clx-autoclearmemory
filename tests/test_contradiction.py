@@ -104,3 +104,15 @@ def test_detect_contradictions_prefilters_with_fts(tmp_path: Path, monkeypatch):
     assert hits and hits[0].memory_id == "target"
     assert calls < 50
     conn.close()
+
+
+def test_always_intensifier_is_not_contradiction(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    store.store_memory(conn, memory_id="redis", content="Use redis cache for sessions and request throttling")
+    hits = contradiction.detect_contradictions(
+        conn,
+        content="Always use redis cache for sessions and request throttling",
+    )
+    assert hits == []
+    conn.close()

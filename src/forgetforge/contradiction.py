@@ -19,7 +19,7 @@ _MIN_CONTEXT_JACCARD = 0.45
 # Substitution-style contradictions (e.g. bridge vs host networking) need
 # very high overlap plus only a few differing content words.
 _MIN_SUBSTITUTION_JACCARD = 0.55
-_NEGATION_MODIFIERS = ("never", "always")
+_NEGATION_MODIFIERS = ("never",)  # `never X` vs `X` is a real contradiction; `always` is an intensifier, not a negation ("always X" is compatible with "X") — a true always/never conflict is already caught by _negation_pair_hit.
 
 
 @dataclass(frozen=True)
