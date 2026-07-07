@@ -140,6 +140,10 @@ def _ensure_fts(conn: sqlite3.Connection) -> dict[str, int]:
             counts["backfilled"] += 1
         except Exception:
             counts["failed"] += 1
+    # Also drop reverse orphans: fts rows whose memory_id has no memories row.
+    # Raw-SQL/manual deletes bypass _fts_delete and leave these, skewing bm25.
+    conn.execute("DELETE FROM memories_fts WHERE memory_id NOT IN (SELECT id FROM memories)")
+    conn.commit()
     return counts
 
 
