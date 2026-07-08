@@ -160,7 +160,7 @@ wheels = [
 
 [[package]]
 name = "cluxion-agentplugin-autoclearmemory"
-version = "0.3.35"
+version = "0.3.36"
 source = { editable = "." }
 dependencies = [
     { name = "pyarrow" },

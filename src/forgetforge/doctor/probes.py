@@ -282,16 +282,20 @@ def forgetforge_home_env_valid(ctx: DoctorContext) -> tuple[str, str]:
 @_register("config_file_loadable")
 def config_file_loadable(ctx: DoctorContext) -> tuple[str, str]:
     try:
-        from forgetforge.config import default_home
+        from forgetforge.config import default_home, load_config
 
         cfg_path = default_home() / "config.yaml"
         if not cfg_path.exists():
             return "skip", "config not present (uses defaults)"
         with open(cfg_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        if isinstance(data, dict):
-            return "pass", "yaml loaded"
-        return "warn", "yaml not mapping"
+        if not isinstance(data, dict):
+            return "warn", "yaml not mapping"
+        try:
+            load_config(cfg_path)
+        except (ValueError, TypeError) as e:
+            return "fail", f"config values not usable: {type(e).__name__}: {e}"
+        return "pass", "yaml loaded and values usable"
     except Exception as e:
         return "skip", f"yaml load issue: {type(e).__name__}"
 
