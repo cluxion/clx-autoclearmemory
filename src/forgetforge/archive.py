@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,7 +59,8 @@ def write_cold_archive_batch(
             for row in rows:
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         for row in rows:
-            txt_path = cfg.archive_dir / f"{row['memory_id']}.txt"
+            safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", row["memory_id"])
+            txt_path = cfg.archive_dir / f"{safe_id}.txt"
             txt_path.write_text(f"# retention={row['retention']:.3f}\n{row['summary']}\n", encoding="utf-8")
             _chmod_private(txt_path)
     finally:

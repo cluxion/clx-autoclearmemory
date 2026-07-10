@@ -155,6 +155,20 @@ def test_ingested_nodes_are_fts_content_anchored(tmp_path):
     assert [n["id"] for n in out] == ["m-rule"]
 
 
+def test_empty_content_ingest_preserves_memory_and_fts(tmp_path):
+    conn = _fresh(tmp_path)
+    content = "rich searchable memory content"
+    db.upsert_memory(conn, memory_id="existing", content=content)
+
+    graph.ingest(conn, [{"id": "existing", "content": "", "domain_tags": "tagged"}], [])
+
+    assert db.get_memory(conn, "existing").content == content
+    fts_ids = conn.execute(
+        "SELECT memory_id FROM memories_fts WHERE memories_fts MATCH 'searchable'"
+    ).fetchall()
+    assert [row["memory_id"] for row in fts_ids] == ["existing"]
+
+
 def test_sweep_expired_cleans_fts_index(tmp_path):
     conn = _fresh(tmp_path)
     graph.ingest(conn, [{"id": "tmp", "content": "ephemeral fts row", "session_id": "sx"}], [])

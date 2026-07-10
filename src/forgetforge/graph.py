@@ -105,7 +105,8 @@ def ingest(conn, nodes: list[dict], edges: list[dict]) -> dict[str, int]:
                                   node_type, session_id, domain_tags)
             VALUES (?, ?, 'warm_episodic', ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-                content=excluded.content, updated_at=excluded.updated_at,
+                content=COALESCE(NULLIF(excluded.content, ''), memories.content),
+                updated_at=excluded.updated_at,
                 node_type=excluded.node_type, session_id=excluded.session_id,
                 domain_tags=excluded.domain_tags
             """,
@@ -122,7 +123,8 @@ def ingest(conn, nodes: list[dict], edges: list[dict]) -> dict[str, int]:
         )
         # mirror upsert_memory: without the FTS row, _seed_ids content anchors
         # are blind to this node (mistake recall returned [] on real DBs)
-        db._fts_upsert(conn, nid, content)
+        if content:
+            db._fts_upsert(conn, nid, content)
         n_nodes += 1
     for ed in edges:
         if not isinstance(ed, dict):

@@ -86,6 +86,17 @@ def test_write_cold_archive_single_still_works(tmp_path: Path, monkeypatch):
         assert S_IMODE(path.stat().st_mode) == 0o600
 
 
+def test_write_cold_archive_sanitizes_memory_id_filename(tmp_path: Path, monkeypatch):
+    _, cfg = _isolated_conn(tmp_path, monkeypatch)
+
+    archive.write_cold_archive_batch(
+        cfg,
+        [{"memory_id": "a/b", "content": "body", "retention": 0.2, "tier": "cold"}],
+    )
+
+    assert (cfg.archive_dir / "a_b.txt").exists()
+
+
 def test_write_cold_archive_batch_uses_unique_parquet_paths(tmp_path: Path, monkeypatch):
     _, cfg = _isolated_conn(tmp_path, monkeypatch)
     real_datetime = archive.datetime
