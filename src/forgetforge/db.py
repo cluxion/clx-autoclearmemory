@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import fcntl
 import os
+import re
 import sqlite3
 import stat
 from dataclasses import dataclass
@@ -97,6 +98,9 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
                     from forgetforge import graph
 
                     graph.ensure_graph_schema(conn)
+                    # One-time data migration needs graph columns present and must
+                    # stay under the same init lock as schema setup.
+                    _migrate_session_intent_uuid_session_ids(conn)
                 finally:
                     _close_init_lock(lock_fd)
                 _require_db_identity(db_path, expected, stage="post-schema")
@@ -190,6 +194,68 @@ def _secure_db_files(db_path: Path) -> None:
             path.chmod(_PRIVATE_FILE_MODE)
 
 
+# Durable marker for the one-time session-intent UUID session_id backfill.
+# Bumped only by that migration; later opens no-op when user_version >= this.
+_SESSION_INTENT_SESSION_ID_USER_VERSION = 1
+_SESSION_INTENT_ID_PREFIX = "session-intent-"
+_SESSION_INTENT_ID_RE = re.compile(
+    r"session-intent-([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
+
+
+def _migrate_session_intent_uuid_session_ids(conn: sqlite3.Connection) -> None:
+    """Backfill session_id on legacy session-intent-<uuid> archive rows once.
+
+    Selects only node_type='session', session_id IS NULL, and id exactly equal to
+    session-intent-<full UUID>. Leaves lookalikes, non-session rows, and already-
+    set session_id values untouched. Records PRAGMA user_version atomically so
+    later opens are no-ops. Session nodes remain graph-recallable.
+    """
+    row = conn.execute("PRAGMA user_version").fetchone()
+    version = int(row[0] if row is not None else 0)
+    if version >= _SESSION_INTENT_SESSION_ID_USER_VERSION:
+        return
+
+    began = not conn.in_transaction
+    if began:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        # Re-check under the write lock so concurrent first-inits stay idempotent.
+        row = conn.execute("PRAGMA user_version").fetchone()
+        version = int(row[0] if row is not None else 0)
+        if version >= _SESSION_INTENT_SESSION_ID_USER_VERSION:
+            if began:
+                conn.rollback()
+            return
+        candidates = conn.execute(
+            """
+            SELECT id FROM memories
+            WHERE node_type = 'session'
+              AND session_id IS NULL
+              AND id LIKE ?
+            """,
+            (f"{_SESSION_INTENT_ID_PREFIX}%",),
+        ).fetchall()
+        updates = []
+        for candidate in candidates:
+            memory_id = str(candidate[0])
+            match = _SESSION_INTENT_ID_RE.fullmatch(memory_id)
+            if match is not None:
+                updates.append((match.group(1), memory_id))
+        conn.executemany(
+            "UPDATE memories SET session_id = ? WHERE id = ? AND session_id IS NULL",
+            updates,
+        )
+        conn.execute(f"PRAGMA user_version = {_SESSION_INTENT_SESSION_ID_USER_VERSION}")
+        if began:
+            conn.commit()
+    except Exception:
+        if began:
+            conn.rollback()
+        raise
+
+
 def _ensure_fts(conn: sqlite3.Connection) -> dict[str, int]:
     conn.execute(
         """
@@ -261,16 +327,18 @@ def upsert_memory(
     keep_forever: bool = False,
     node_type: str | None = None,
     expire_at: int | None = None,
+    session_id: str | None = None,
 ) -> MemoryRow:
     ts = now_iso()
-    # node_type/expire_at None = pre-flag behavior exactly: 'memory'/NULL on
-    # insert, existing values untouched on update (COALESCE against the row).
+    # node_type/expire_at/session_id None = pre-flag behavior exactly:
+    # 'memory'/NULL/NULL on insert, existing values untouched on update
+    # (COALESCE against the row).
     conn.execute(
         """
         INSERT INTO memories (
             id, content, importance, frequency, is_procedural, keep_forever,
-            created_at, updated_at, node_type, expire_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'memory'), ?)
+            created_at, updated_at, node_type, expire_at, session_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'memory'), ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             content = excluded.content,
             importance = excluded.importance,
@@ -280,7 +348,8 @@ def upsert_memory(
             forget_requested = 0,
             updated_at = excluded.updated_at,
             node_type = COALESCE(?, node_type),
-            expire_at = COALESCE(?, expire_at)
+            expire_at = COALESCE(?, expire_at),
+            session_id = COALESCE(?, session_id)
         """,
         (
             memory_id,
@@ -293,8 +362,10 @@ def upsert_memory(
             ts,
             node_type,
             expire_at,
+            session_id,
             node_type,
             expire_at,
+            session_id,
         ),
     )
     _fts_upsert(conn, memory_id, content)
@@ -372,16 +443,38 @@ def search_candidate_memories(conn: sqlite3.Connection, terms: set[str], *, limi
     return [_row_to_memory(row) for row in rows]
 
 
-def list_memories(conn: sqlite3.Connection, *, limit: int = 100) -> list[MemoryRow]:
-    cur = conn.execute(
-        """
-        SELECT * FROM memories
-        WHERE forget_requested = 0
-        ORDER BY updated_at DESC
-        LIMIT ?
-        """,
-        (limit,),
-    )
+def list_memories(
+    conn: sqlite3.Connection,
+    *,
+    limit: int = 100,
+    node_type: str | None = None,
+) -> list[MemoryRow]:
+    """List active memories. Optional node_type is applied at SQL level.
+
+    Callers that omit node_type keep the mixed-type listing (pruner/status/etc.).
+    Contradiction fallback passes node_type='memory' so non-memory graph nodes
+    are never loaded into the candidate pool.
+    """
+    if node_type is None:
+        cur = conn.execute(
+            """
+            SELECT * FROM memories
+            WHERE forget_requested = 0
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    else:
+        cur = conn.execute(
+            """
+            SELECT * FROM memories
+            WHERE forget_requested = 0 AND node_type = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (node_type, limit),
+        )
     return [_row_to_memory(row) for row in cur.fetchall()]
 
 

@@ -75,21 +75,68 @@ def test_session_node_type_excluded_from_recall_and_hot_but_graph_reachable(tmp_
     conn.close()
 
 
+def test_store_session_id_retrievable_via_graph_recall_session(tmp_path: Path, monkeypatch):
+    # session archive must persist session_id so graph-recall --session can seed it,
+    # while still staying out of hot recall
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    store.store_memory(
+        conn,
+        memory_id="session-intent-abc123",
+        content="session archive walrusintent details",
+        importance=0.9,
+        node_type="session",
+        session_id="  abc123  ",
+        expire_days=90,
+    )
+    row = conn.execute(
+        "SELECT node_type, session_id, expire_at FROM memories WHERE id = 'session-intent-abc123'"
+    ).fetchone()
+    assert row["node_type"] == "session"
+    assert row["session_id"] == "abc123"
+    assert row["expire_at"] is not None and row["expire_at"] > time.time()
+    hits = graph.graph_recall(conn, session="abc123")
+    assert [n["id"] for n in hits] == ["session-intent-abc123"]
+    payload = store.recall_with_feedback(conn, "walrusintent")
+    assert payload["count"] == 0
+    assert db.list_hot_memories(conn, limit=20) == []
+    conn.close()
+
+
 def test_plain_store_calls_behave_exactly_as_before(tmp_path: Path, monkeypatch):
     # backward compat: no flags -> node_type 'memory', no expiry; and a plain
-    # re-store never resets an existing row's node_type/expire_at
+    # re-store never resets an existing row's node_type/session_id/expire_at
     monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
     conn = db.connect(tmp_path / "db.sqlite")
     store.store_memory(conn, memory_id="plain", content="plain fact")
-    row = conn.execute("SELECT node_type, expire_at FROM memories WHERE id = 'plain'").fetchone()
-    assert row["node_type"] == "memory" and row["expire_at"] is None
+    row = conn.execute("SELECT node_type, session_id, expire_at FROM memories WHERE id = 'plain'").fetchone()
+    assert row["node_type"] == "memory" and row["session_id"] is None and row["expire_at"] is None
 
-    store.store_memory(conn, memory_id="sess", content="v1", node_type="session", expire_days=2)
-    before = conn.execute("SELECT node_type, expire_at FROM memories WHERE id = 'sess'").fetchone()
+    store.store_memory(
+        conn,
+        memory_id="sess",
+        content="v1",
+        node_type="session",
+        session_id="sid-keep",
+        expire_days=2,
+    )
+    before = conn.execute("SELECT node_type, session_id, expire_at FROM memories WHERE id = 'sess'").fetchone()
     store.store_memory(conn, memory_id="sess", content="v2")  # legacy call shape
-    after = conn.execute("SELECT node_type, expire_at FROM memories WHERE id = 'sess'").fetchone()
+    after = conn.execute("SELECT node_type, session_id, expire_at FROM memories WHERE id = 'sess'").fetchone()
     assert after["node_type"] == "session"
+    assert after["session_id"] == before["session_id"] == "sid-keep"
     assert after["expire_at"] == before["expire_at"]
+    conn.close()
+
+
+def test_store_rejects_explicitly_empty_session_id(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    with pytest.raises(ValueError, match="session_id"):
+        store.store_memory(conn, memory_id="x", content="c", session_id="")
+    with pytest.raises(ValueError, match="session_id"):
+        store.store_memory(conn, memory_id="x", content="c", session_id="   ")
+    assert db.get_memory(conn, "x") is None
     conn.close()
 
 
@@ -133,14 +180,17 @@ def test_store_rejects_invalid_node_type_and_negative_expiry(tmp_path: Path, mon
     conn.close()
 
 
-@pytest.mark.parametrize("field,value", [
-    ("importance", float("nan")),
-    ("importance", float("inf")),
-    ("importance", float("-inf")),
-    ("frequency", float("nan")),
-    ("frequency", float("inf")),
-    ("frequency", float("-inf")),
-])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("importance", float("nan")),
+        ("importance", float("inf")),
+        ("importance", float("-inf")),
+        ("frequency", float("nan")),
+        ("frequency", float("inf")),
+        ("frequency", float("-inf")),
+    ],
+)
 def test_store_rejects_non_finite_importance_frequency_before_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: float
 ) -> None:
@@ -163,9 +213,7 @@ def test_store_rejects_non_finite_importance_frequency_before_write(
     conn.close()
 
 
-def test_store_clamps_finite_out_of_range_importance_frequency(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_store_clamps_finite_out_of_range_importance_frequency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Finite values outside [0,1] stay clamped; only non-finite is rejected.
     # Arbitrary-size Python ints must clamp (not OverflowError via float conversion).
     monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))

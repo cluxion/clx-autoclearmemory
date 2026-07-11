@@ -215,6 +215,39 @@ def test_store_session_node_type_skips_recall_but_graph_recalls(capsys: pytest.C
     assert [n["id"] for n in g["nodes"]] == ["sess-1"]
 
 
+def test_store_session_id_graph_recall_by_session(capsys: pytest.CaptureFixture[str]) -> None:
+    code, stored = _run(
+        capsys,
+        "store",
+        "session-intent-deadbeef",
+        "--content",
+        "session archive platypusintent details",
+        "--node-type",
+        "session",
+        "--session-id",
+        "deadbeef-uuid",
+        "--expire-days",
+        "90",
+    )
+    assert code == 0 and stored["ok"] is True
+    code, g = _run(capsys, "graph-recall", "--session", "deadbeef-uuid")
+    assert code == 0
+    assert [n["id"] for n in g["nodes"]] == ["session-intent-deadbeef"]
+    code, recalled = _run(capsys, "recall", "platypusintent")
+    assert code == 0 and recalled["count"] == 0
+
+
+def test_store_rejects_empty_session_id_as_stdout_json(capsys: pytest.CaptureFixture[str]) -> None:
+    code = cli.main(["store", "m-empty-sid", "--content", "x", "--session-id", "   "])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert code == 2
+    assert captured.err == ""
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid_argument"
+    assert "session_id" in payload["message"]
+
+
 def test_recall_miss_returns_actionable_hint(capsys: pytest.CaptureFixture[str]) -> None:
     code, payload = _run(capsys, "recall", "nothing-stored-yet")
     assert code == 0
@@ -497,9 +530,7 @@ def test_graph_ingest_non_dict_items_counted_as_skipped(
     assert payload["skipped"] == 3
 
 
-def test_pruner_daemon_invalid_config_returns_storage_error(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
-) -> None:
+def test_pruner_daemon_invalid_config_returns_storage_error(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     # load_config OSError must map to storage_error JSON, not an uncaught traceback
     (tmp_path / "config.yaml").write_text(
         "pruner:\n  interval_hours: not-a-number\n",
@@ -514,9 +545,7 @@ def test_pruner_daemon_invalid_config_returns_storage_error(
     assert "Traceback" not in captured.err
 
 
-def test_status_invalid_utf8_config_returns_storage_error(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
-) -> None:
+def test_status_invalid_utf8_config_returns_storage_error(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     # Invalid UTF-8 config must map to storage_error JSON, not UnicodeDecodeError traceback
     (tmp_path / "config.yaml").write_bytes(b"\xff\xfe")
     code = cli.main(["status"])

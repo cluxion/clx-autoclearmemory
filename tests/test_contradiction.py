@@ -116,3 +116,53 @@ def test_always_intensifier_is_not_contradiction(tmp_path: Path, monkeypatch):
     )
     assert hits == []
     conn.close()
+
+
+def test_fts_empty_fallback_excludes_session_nodes_from_contradictions(tmp_path: Path, monkeypatch):
+    # When FTS memory candidates are empty, the SQL fallback must still filter
+    # node_type='memory' so session archives never pollute contradiction hits.
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    session_id = "session-intent-contradiction-isolation"
+    session_claim = "User always prefers docker compose for local development"
+    probe = "User never prefers docker compose for local development"
+    store.store_memory(
+        conn,
+        memory_id=session_id,
+        content=session_claim,
+        node_type="session",
+        check_contradictions=False,
+    )
+    # FTS candidate search is memory-only; empty forces the fallback path.
+    assert db.search_candidate_memories(conn, contradiction._tokens(probe), limit=40) == []
+
+    hits = contradiction.detect_contradictions(conn, content=probe)
+    assert hits == []
+    assert all(h.memory_id != session_id for h in hits)
+
+    stored = store.store_memory(conn, memory_id="docker-never", content=probe)
+    warnings = stored.get("contradiction_warnings", [])
+    assert "contradiction_warnings" not in stored or warnings == []
+    assert all(w.get("memory_id") != session_id for w in warnings)
+
+    # Ordinary memory-vs-memory detection must keep working alongside session rows.
+    store.store_memory(
+        conn,
+        memory_id="mem-old",
+        content="Project uses Rust for all hot path scoring engines",
+        check_contradictions=False,
+    )
+    mem_hits = contradiction.detect_contradictions(
+        conn,
+        content="Project never uses Rust for hot path scoring engines",
+    )
+    assert mem_hits and mem_hits[0].memory_id == "mem-old"
+    assert all(h.memory_id != session_id for h in mem_hits)
+    mem_stored = store.store_memory(
+        conn,
+        memory_id="mem-new",
+        content="Project never uses Rust for hot path scoring engines",
+    )
+    assert mem_stored["contradiction_warnings"][0]["memory_id"] == "mem-old"
+    assert all(w["memory_id"] != session_id for w in mem_stored["contradiction_warnings"])
+    conn.close()

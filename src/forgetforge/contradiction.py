@@ -19,7 +19,9 @@ _MIN_CONTEXT_JACCARD = 0.45
 # Substitution-style contradictions (e.g. bridge vs host networking) need
 # very high overlap plus only a few differing content words.
 _MIN_SUBSTITUTION_JACCARD = 0.55
-_NEGATION_MODIFIERS = ("never",)  # `never X` vs `X` is a real contradiction; `always` is an intensifier, not a negation ("always X" is compatible with "X") — a true always/never conflict is already caught by _negation_pair_hit.
+_NEGATION_MODIFIERS = (
+    "never",
+)  # `never X` vs `X` is a real contradiction; `always` is an intensifier, not a negation ("always X" is compatible with "X") — a true always/never conflict is already caught by _negation_pair_hit.
 
 
 @dataclass(frozen=True)
@@ -119,7 +121,9 @@ def detect_contradictions(
     lower_new = content.lower()
     rows = db.search_candidate_memories(conn, new_tokens, limit=40)
     if not rows:
-        rows = db.list_memories(conn, limit=500)
+        # FTS is memory-only; empty fallback must also isolate node_type at SQL
+        # so session/graph archives never enter the contradiction candidate pool.
+        rows = db.list_memories(conn, limit=500, node_type="memory")
     for row in rows:
         if exclude_id and row.id == exclude_id:
             continue

@@ -32,15 +32,20 @@ def store_memory(
     check_contradictions: bool = True,
     node_type: str | None = None,
     expire_days: int | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Persist or update a memory. Connected AI calls this before recall.
 
     node_type != 'memory' (e.g. 'session' archives) keeps the row out of
     recall/hot-injection while graph paths can still reach it; expire_days
     sets expire_at so the pruner's TTL sweep hard-deletes it later.
+    session_id tags the row for graph-recall --session (None preserves an
+    existing value on re-store, same as node_type/expire metadata).
     """
     memory_id = _normalize_required_text(memory_id, "memory_id")
     content = _normalize_required_text(content, "content")
+    if session_id is not None:
+        session_id = _normalize_required_text(session_id, "session_id")
     if node_type is not None and node_type not in graph.VALID_NODE_TYPES:
         valid = ", ".join(sorted(graph.VALID_NODE_TYPES))
         raise ValueError(f"invalid node_type: {node_type} (valid: {valid})")
@@ -66,6 +71,7 @@ def store_memory(
         is_procedural=is_procedural,
         node_type=node_type,
         expire_at=expire_at,
+        session_id=session_id,
     )
     decision = rust_bridge.decide_tier(
         days_since_recall=999.0,

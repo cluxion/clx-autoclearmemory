@@ -203,12 +203,18 @@ def test_ingest_skips_invalid_importance_and_weight_only(tmp_path):
     assert res == {"nodes": 1, "edges": 1, "skipped": 2}
     assert conn.execute("SELECT COUNT(*) FROM memories WHERE id = 'good'").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM memories WHERE id = 'bad-imp'").fetchone()[0] == 0
-    assert conn.execute(
-        "SELECT COUNT(*) FROM graph_edges WHERE src_id = 'good' AND dst_id = 'good' AND rel = 'relates_to'"
-    ).fetchone()[0] == 1
-    assert conn.execute(
-        "SELECT COUNT(*) FROM graph_edges WHERE src_id = 'good' AND dst_id = 'good' AND rel = 'owns'"
-    ).fetchone()[0] == 0
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM graph_edges WHERE src_id = 'good' AND dst_id = 'good' AND rel = 'relates_to'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM graph_edges WHERE src_id = 'good' AND dst_id = 'good' AND rel = 'owns'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_ingest_skips_non_finite_importance_and_weight(tmp_path):
@@ -235,15 +241,24 @@ def test_ingest_skips_non_finite_importance_and_weight(tmp_path):
     assert res["edges"] == 1
     assert res["skipped"] == 8
     assert conn.execute("SELECT COUNT(*) FROM memories WHERE id = 'good'").fetchone()[0] == 1
-    assert conn.execute(
-        "SELECT COUNT(*) FROM memories WHERE id IN ('nan-imp', 'inf-imp', 'ninf-imp', 'overflow-imp')"
-    ).fetchone()[0] == 0
-    assert conn.execute(
-        "SELECT COUNT(*) FROM graph_edges WHERE src_id = 'good' AND dst_id = 'good' AND rel = 'relates_to'"
-    ).fetchone()[0] == 1
-    assert conn.execute(
-        "SELECT COUNT(*) FROM graph_edges WHERE rel IN ('owns', 'supersedes', 'decided', 'touched')"
-    ).fetchone()[0] == 0
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM memories WHERE id IN ('nan-imp', 'inf-imp', 'ninf-imp', 'overflow-imp')"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM graph_edges WHERE src_id = 'good' AND dst_id = 'good' AND rel = 'relates_to'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM graph_edges WHERE rel IN ('owns', 'supersedes', 'decided', 'touched')"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_mistake_recall_routes_by_domain_tags(tmp_path):
@@ -300,9 +315,7 @@ def test_empty_content_ingest_preserves_memory_and_fts(tmp_path):
     graph.ingest(conn, [{"id": "existing", "content": "", "domain_tags": "tagged"}], [])
 
     assert db.get_memory(conn, "existing").content == content
-    fts_ids = conn.execute(
-        "SELECT memory_id FROM memories_fts WHERE memories_fts MATCH 'searchable'"
-    ).fetchall()
+    fts_ids = conn.execute("SELECT memory_id FROM memories_fts WHERE memories_fts MATCH 'searchable'").fetchall()
     assert [row["memory_id"] for row in fts_ids] == ["existing"]
 
 
@@ -422,4 +435,73 @@ def test_session_recall_still_honours_mistakes_filter(tmp_path):
     without = {r["id"] for r in graph.graph_recall(conn, anchor_tags="python", session="s1", mistakes=False)}
     assert with_mistakes == {"m1"}  # --mistakes restricts within the session
     assert without == {"m1", "m2"}  # unfiltered session recall unchanged
+    conn.close()
+
+
+def test_session_intent_uuid_session_id_backfill_on_upgrade_is_selective_and_idempotent(tmp_path):
+    # Pre-upgrade archives used id='session-intent-<uuid>' with node_type='session'
+    # and NULL session_id. Upgrade must backfill that UUID once (marker-gated),
+    # leaving lookalikes / non-UUID ids / non-session rows / already-set rows alone.
+    uuid = "019f4b28-aada-79e2-9f23-3ec069975f01"
+    other_uuid = "a1c39959-7e1f-43e3-b6b7-7f61e6746ac1"
+    target_id = f"session-intent-{uuid}"
+    already_set_id = "session-intent-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    nonhex_uuid_shape_id = "session-intent-zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+    no_hyphen_id = f"session-intent-{uuid.replace('-', '')}"
+    memory_shaped_id = f"session-intent-{other_uuid}"
+    rows = [
+        (target_id, "session core archive", "session", None),
+        ("session-intent-not-a-uuid", "lookalike non-uuid", "session", None),
+        ("session-intent-deadbeef", "lookalike short id", "session", None),
+        (f"session-intent-{uuid}-extra", "lookalike suffix", "session", None),
+        (no_hyphen_id, "lookalike no hyphens", "session", None),
+        (memory_shaped_id, "memory typed matching id shape", "memory", None),
+        ("plain-memory", "ordinary memory", "memory", None),
+        (already_set_id, "already set", "session", "keep-me"),
+        (nonhex_uuid_shape_id, "same UUID shape but non-hex", "session", None),
+        (f"task-intent-{uuid}", "non-session lookalike prefix", "task", None),
+    ]
+
+    p = tmp_path / "pre-session-id-backfill.db"
+    raw = sqlite3.connect(p)
+    raw.executescript(db.SCHEMA)
+    for stmt in (
+        "ALTER TABLE memories ADD COLUMN node_type TEXT NOT NULL DEFAULT 'memory'",
+        "ALTER TABLE memories ADD COLUMN session_id TEXT",
+        "ALTER TABLE memories ADD COLUMN domain_tags TEXT",
+        "ALTER TABLE memories ADD COLUMN expire_at INTEGER",
+    ):
+        raw.execute(stmt)
+    for mid, content, ntype, sid in rows:
+        raw.execute(
+            "INSERT INTO memories (id, content, created_at, updated_at, node_type, session_id) "
+            "VALUES (?, ?, '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00', ?, ?)",
+            (mid, content, ntype, sid),
+        )
+    raw.commit()
+    raw.close()
+
+    def _session_map(conn) -> dict[str, str | None]:
+        return {str(r["id"]): r["session_id"] for r in conn.execute("SELECT id, session_id FROM memories ORDER BY id")}
+
+    db._initialized_db_paths.pop(str(p.resolve()), None)
+    conn = db.connect(p)  # upgrade path: one-time selective backfill
+    first = _session_map(conn)
+    assert first[target_id] == uuid
+    assert first["session-intent-not-a-uuid"] is None
+    assert first["session-intent-deadbeef"] is None
+    assert first[f"session-intent-{uuid}-extra"] is None
+    assert first[no_hyphen_id] is None
+    assert first[memory_shaped_id] is None  # node_type=memory
+    assert first["plain-memory"] is None
+    assert first[already_set_id] == "keep-me"
+    assert first[nonhex_uuid_shape_id] is None
+    assert first[f"task-intent-{uuid}"] is None
+    conn.close()
+
+    db._initialized_db_paths.pop(str(p.resolve()), None)
+    conn = db.connect(p)  # second open must be a no-op (idempotent)
+    second = _session_map(conn)
+    assert second == first
+    assert second[target_id] == uuid
     conn.close()

@@ -124,6 +124,11 @@ def _parser(*, json_errors: bool = False) -> argparse.ArgumentParser:
     store_cmd.add_argument(
         "--expire-days", type=int, default=None, help="Hard-delete after N days via the pruner TTL sweep"
     )
+    store_cmd.add_argument(
+        "--session-id",
+        default=None,
+        help="Owning session id for graph-recall --session (omit to leave unset/preserve)",
+    )
     daemon = sub.add_parser("pruner-daemon", help="Run pruner on interval (background)")
     daemon.add_argument("--interval-hours", type=int, default=None)
     daemon.add_argument("--once", action="store_true", help="Run one cycle then exit")
@@ -341,6 +346,7 @@ def _store(args: argparse.Namespace) -> int:
                 is_procedural=bool(args.procedural),
                 node_type=args.node_type,
                 expire_days=int(args.expire_days) if args.expire_days is not None else None,
+                session_id=args.session_id,
             )
         print(json.dumps({"ok": True, "stored": stored}, ensure_ascii=False, indent=2))
         return 0
