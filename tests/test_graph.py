@@ -329,6 +329,45 @@ def test_sweep_expired_cleans_fts_index(tmp_path):
     assert conn.execute("SELECT COUNT(*) FROM memories_fts WHERE memory_id = 'tmp'").fetchone()[0] == 0
 
 
+@pytest.mark.parametrize(
+    "concurrent_update",
+    [
+        "UPDATE memories SET keep_forever = 1 WHERE id = 'ttl-race'",
+        "UPDATE memories SET expire_at = 200 WHERE id = 'ttl-race'",
+    ],
+)
+def test_sweep_expired_preserves_concurrently_retained_node(tmp_path, monkeypatch, concurrent_update):
+    conn = _fresh(tmp_path)
+    graph.ingest(
+        conn,
+        [{"id": "ttl-race", "content": "retained searchable"}, {"id": "peer", "content": "peer"}],
+        [{"src": "ttl-race", "dst": "peer", "rel": "relates_to"}],
+    )
+    conn.execute("UPDATE memories SET expire_at = 1 WHERE id = 'ttl-race'")
+    conn.commit()
+    rival = db.connect(tmp_path / "g.db")
+    monkeypatch.setattr(graph, "_now", lambda: 100)
+
+    class RaceConn:
+        fired = False
+
+        def execute(self, sql, params=()):
+            if not self.fired and sql.lstrip().startswith(("DELETE FROM graph_edges", "DELETE FROM memories")):
+                self.fired = True
+                rival.execute(concurrent_update)
+                rival.commit()
+            return conn.execute(sql, params)
+
+        def __getattr__(self, name):
+            return getattr(conn, name)
+
+    assert graph.sweep_expired(RaceConn()) == 0
+    assert conn.execute("SELECT COUNT(*) FROM memories WHERE id = 'ttl-race'").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM graph_edges WHERE src_id = 'ttl-race'").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM memories_fts WHERE memory_id = 'ttl-race'").fetchone()[0] == 1
+    rival.close()
+
+
 def test_blank_stdin_is_noop_not_error(tmp_path):
     # whitespace-only ingest payload = ingest nothing, never an error
     conn = _fresh(tmp_path)

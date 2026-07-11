@@ -294,9 +294,17 @@ def sweep_expired(conn) -> int:
             (now,),
         ).fetchall()
     ]
+    removed = 0
     for nid in ids:
+        cur = conn.execute(
+            "DELETE FROM memories "
+            "WHERE id = ? AND expire_at IS NOT NULL AND expire_at < ? AND keep_forever = 0",
+            (nid, now),
+        )
+        if cur.rowcount != 1:
+            continue
         conn.execute("DELETE FROM graph_edges WHERE src_id = ? OR dst_id = ?", (nid, nid))
-        conn.execute("DELETE FROM memories WHERE id = ?", (nid,))
         db._fts_delete(conn, nid)  # hard delete must not leave orphan index rows
+        removed += 1
     conn.commit()
-    return len(ids)
+    return removed
