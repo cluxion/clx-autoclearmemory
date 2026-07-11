@@ -388,8 +388,7 @@ def _store(args: argparse.Namespace) -> int:
         store._require_finite_score("importance", importance)
         store._require_finite_score("frequency", frequency)
         expire_days = int(args.expire_days) if args.expire_days is not None else None
-        if expire_days is not None and expire_days < 0:
-            raise ValueError("expire_days must be >= 0")
+        expire_at = store._validate_expire_days(expire_days)
         node_type = args.node_type
         if node_type is not None and node_type not in graph.VALID_NODE_TYPES:
             valid = ", ".join(sorted(graph.VALID_NODE_TYPES))
@@ -406,6 +405,7 @@ def _store(args: argparse.Namespace) -> int:
                 node_type=node_type,
                 expire_days=expire_days,
                 session_id=session_id,
+                _validated_expire_at=expire_at,
             )
         print(json.dumps({"ok": True, "stored": stored}, ensure_ascii=False, indent=2))
         return 0

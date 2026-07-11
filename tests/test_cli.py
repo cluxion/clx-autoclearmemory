@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from forgetforge import cli
+from forgetforge import cli, store
 
 
 @pytest.fixture(autouse=True)
@@ -132,23 +132,38 @@ def test_store_reads_content_from_file_and_stdin(
     assert {row["memory_id"] for row in recalled["results"]} == {"m-file", "m-stdin"}
 
 
-def test_store_huge_expire_days_returns_invalid_argument_with_no_row(
+def test_store_huge_expire_days_returns_invalid_argument_with_empty_home(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    # Overflow-scale --expire-days must be structured invalid_argument, never a partial row.
+    # Overflow-scale --expire-days must be rejected before config/DB/lock creation.
     code = cli.main(["store", "m-huge", "--content", "x", "--expire-days", str(2**62)])
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert code == 2
     assert payload["ok"] is False
     assert payload["error"] == "invalid_argument"
-    db_path = tmp_path / "db.sqlite"
-    if db_path.exists():
-        conn = sqlite3.connect(db_path)
-        try:
-            assert conn.execute("SELECT COUNT(*) FROM memories WHERE id = 'm-huge'").fetchone()[0] == 0
-        finally:
-            conn.close()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_store_expire_boundary_uses_single_prevalidated_timestamp(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    max_sqlite_int = (1 << 63) - 1
+    clock = iter((max_sqlite_int - 86400, max_sqlite_int - 86399))
+    monkeypatch.setattr(store.time, "time", lambda: next(clock))
+
+    code, payload = _run(capsys, "store", "m-edge", "--content", "x", "--expire-days", "1")
+
+    assert code == 0
+    assert payload["ok"] is True
+    conn = sqlite3.connect(tmp_path / "db.sqlite")
+    try:
+        assert conn.execute("SELECT expire_at FROM memories WHERE id = 'm-edge'").fetchone() == (max_sqlite_int,)
+    finally:
+        conn.close()
+    assert next(clock) == max_sqlite_int - 86399
+    with pytest.raises(StopIteration):
+        next(clock)
 
 
 @pytest.mark.parametrize(
@@ -175,14 +190,7 @@ def test_store_non_finite_score_returns_invalid_argument_with_no_row(
     assert payload["ok"] is False
     assert payload["error"] == "invalid_argument"
     assert "hint" in payload
-    db_path = tmp_path / "db.sqlite"
-    if db_path.exists():
-        conn = sqlite3.connect(db_path)
-        try:
-            assert conn.execute("SELECT COUNT(*) FROM memories WHERE id = ?", (memory_id,)).fetchone()[0] == 0
-            assert conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 0
-        finally:
-            conn.close()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_store_missing_content_file_returns_usage_or_invalid_argument(

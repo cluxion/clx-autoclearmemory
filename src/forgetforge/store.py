@@ -7,6 +7,8 @@ from typing import Any
 from forgetforge import contradiction, db, graph, rust_bridge
 from forgetforge.config import load_config
 
+_EXPIRE_AT_UNSET = object()
+
 
 def _require_utf8_encodable(value: str, field: str) -> str:
     """Reject lone surrogates / non-UTF-8-encodable text before any storage I/O."""
@@ -30,6 +32,18 @@ def _require_finite_score(name: str, value: float) -> None:
         raise ValueError(f"{name} must be finite, got {value!r}")
 
 
+def _validate_expire_days(expire_days: int | None) -> int | None:
+    if expire_days is None:
+        return None
+    if expire_days < 0:
+        raise ValueError("expire_days must be >= 0")
+    expire_at = int(time.time()) + int(expire_days) * 86400
+    # SQLite INTEGER is signed 64-bit; reject overflow before any write.
+    if not (-(1 << 63) <= expire_at <= (1 << 63) - 1):
+        raise ValueError("expire_days is too large")
+    return expire_at
+
+
 def store_memory(
     conn,
     *,
@@ -42,6 +56,7 @@ def store_memory(
     node_type: str | None = None,
     expire_days: int | None = None,
     session_id: str | None = None,
+    _validated_expire_at: Any = _EXPIRE_AT_UNSET,
 ) -> dict[str, Any]:
     """Persist or update a memory. Connected AI calls this before recall.
 
@@ -58,14 +73,13 @@ def store_memory(
     if node_type is not None and node_type not in graph.VALID_NODE_TYPES:
         valid = ", ".join(sorted(graph.VALID_NODE_TYPES))
         raise ValueError(f"invalid node_type: {node_type} (valid: {valid})")
-    if expire_days is not None and expire_days < 0:
-        raise ValueError("expire_days must be >= 0")
     _require_finite_score("importance", importance)
     _require_finite_score("frequency", frequency)
-    expire_at = int(time.time()) + int(expire_days) * 86400 if expire_days is not None else None
-    # SQLite INTEGER is signed 64-bit; reject overflow before write (no arbitrary day cap).
-    if expire_at is not None and not (-(1 << 63) <= expire_at <= (1 << 63) - 1):
-        raise ValueError("expire_days is too large")
+    expire_at = (
+        _validate_expire_days(expire_days)
+        if _validated_expire_at is _EXPIRE_AT_UNSET
+        else _validated_expire_at
+    )
     warnings: list[dict[str, Any]] = []
     if check_contradictions:
         warnings = [
