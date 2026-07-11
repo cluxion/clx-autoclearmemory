@@ -37,6 +37,7 @@ def test_marketplace_manifest_is_version_synced() -> None:
     version = pyproject["project"]["version"]
 
     marketplace = json.loads(Path(".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+    assert marketplace["name"] == CANONICAL_PLUGIN_ID
     assert marketplace["plugins"][0]["name"] == CANONICAL_PLUGIN_ID
     assert marketplace["plugins"][0]["version"] == version
     assert marketplace["plugins"][0]["source"] == "./"
