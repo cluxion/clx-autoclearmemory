@@ -181,6 +181,35 @@ def test_store_rejects_invalid_node_type_and_negative_expiry(tmp_path: Path, mon
 
 
 @pytest.mark.parametrize(
+    "field,bad_text",
+    [
+        ("content", "surrogate-\udc80"),
+        ("content", "invalid-byte-\udcff"),
+        ("memory_id", "id-\udc80"),
+        ("session_id", "sid-\udcff"),
+    ],
+)
+def test_store_rejects_non_utf8_encodable_required_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, bad_text: str
+) -> None:
+    # Strict UTF-8 encodability on required text fields (surrogates / invalid-byte text).
+    monkeypatch.setenv("FORGETFORGE_HOME", str(tmp_path))
+    conn = db.connect(tmp_path / "db.sqlite")
+    kwargs: dict = {"memory_id": "ok-id", "content": "ok content"}
+    if field == "session_id":
+        kwargs["session_id"] = bad_text
+    else:
+        kwargs[field] = bad_text
+    with pytest.raises(ValueError, match="UTF-8"):
+        store.store_memory(conn, **kwargs)
+    # Never pass non-encodable ids into SQLite lookups; count proves no write.
+    assert conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 0
+    if field != "memory_id":
+        assert db.get_memory(conn, "ok-id") is None
+    conn.close()
+
+
+@pytest.mark.parametrize(
     "field,value",
     [
         ("importance", float("nan")),

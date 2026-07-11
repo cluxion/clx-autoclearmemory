@@ -8,11 +8,20 @@ from forgetforge import contradiction, db, graph, rust_bridge
 from forgetforge.config import load_config
 
 
+def _require_utf8_encodable(value: str, field: str) -> str:
+    """Reject lone surrogates / non-UTF-8-encodable text before any storage I/O."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as e:
+        raise ValueError(f"{field} must be UTF-8 encodable") from e
+    return value
+
+
 def _normalize_required_text(value: str, field: str) -> str:
     text = value.strip()
     if not text:
         raise ValueError(f"{field} is required")
-    return text
+    return _require_utf8_encodable(text, field)
 
 
 def _require_finite_score(name: str, value: float) -> None:

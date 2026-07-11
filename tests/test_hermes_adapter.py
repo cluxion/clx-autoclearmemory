@@ -280,3 +280,27 @@ def test_multi_invalid_store_import_validation_order(
     if tool == "forgetforge_import_brief" and error_fragment == "brief is required":
         assert payload["error"] == "brief is required"
     _assert_home_completely_empty(isolated_home)
+
+
+@pytest.mark.parametrize(
+    "field,bad_text",
+    [
+        ("content", "surrogate-\udc80"),
+        ("content", "invalid-byte-\udcff"),
+        ("memory_id", "id-\udc80"),
+        ("memory_id", "id-\udcff"),
+    ],
+)
+def test_store_rejects_non_utf8_encodable_text_and_leaves_home_empty(
+    isolated_home: Path, field: str, bad_text: str
+) -> None:
+    # Lone surrogates / surrogateescape-style text: structured error, no DB/WAL/SHM/locks.
+    ctx = FakeCtx()
+    hermes.register(ctx)
+    args = {"memory_id": "m-utf8", "content": "ok content"}
+    args[field] = bad_text
+    payload = _call(ctx, "forgetforge_store", args)
+    assert payload["ok"] is False
+    assert "error" in payload
+    assert "UTF-8" in payload["error"] or "utf-8" in payload["error"].lower()
+    _assert_home_completely_empty(isolated_home)

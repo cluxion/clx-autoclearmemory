@@ -576,3 +576,116 @@ def test_status_invalid_utf8_config_returns_storage_error(capsys: pytest.Capture
     assert payload["ok"] is False
     assert payload["error"] == "storage_error"
     assert "Traceback" not in captured.err
+
+
+def _assert_no_storage_artifacts(home: Path) -> None:
+    """Bad input must not create DB/WAL/SHM/pruner lock/state files."""
+    assert list(home.iterdir()) == []
+    for name in ("db.sqlite", "db.sqlite-wal", "db.sqlite-shm", ".pruner.lock", ".init.lock"):
+        assert not (home / name).exists()
+
+
+@pytest.mark.parametrize(
+    "bad_text,label",
+    [
+        ("surrogate-\udc80", "surrogate"),
+        ("invalid-byte-\udcff", "invalid-byte"),  # PEP 383 surrogateescape-style
+    ],
+)
+def test_store_rejects_non_utf8_encodable_text_with_no_storage_artifacts(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    bad_text: str,
+    label: str,
+) -> None:
+    # Strict UTF-8: structured invalid_argument before any DB/lock init.
+    code = cli.main(["store", f"m-{label}", "--content", bad_text])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert code == 2
+    assert captured.err == ""
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid_argument"
+    assert "UTF-8" in payload["message"] or "utf-8" in payload["message"].lower()
+    _assert_no_storage_artifacts(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "bad_text,label",
+    [
+        ("surrogate-\udc80", "surrogate"),
+        ("invalid-byte-\udcff", "invalid-byte"),
+    ],
+)
+def test_graph_ingest_rejects_non_utf8_encodable_payload_text_with_no_storage_artifacts(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_text: str,
+    label: str,
+) -> None:
+    # Parsed node text must be UTF-8 encodable before load_config/db/lock.
+    # ensure_ascii=True escapes surrogates as \uXXXX; loads restores them as str.
+    payload_in = json.dumps({"nodes": [{"id": f"n-{label}", "content": bad_text}], "edges": []})
+    monkeypatch.setattr(sys, "stdin", StringIO(payload_in))
+    code = cli.main(["graph-ingest"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert code == 2
+    assert captured.err == ""
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid_argument"
+    assert "UTF-8" in payload["message"] or "utf-8" in payload["message"].lower()
+    _assert_no_storage_artifacts(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "bad_raw",
+    [
+        "\udc80",  # raw surrogate on stdin before JSON parse
+        "\udcff{not-json",  # invalid-byte-style surrogate + garbage
+    ],
+)
+def test_graph_ingest_rejects_non_utf8_encodable_raw_stdin_with_no_storage_artifacts(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_raw: str,
+) -> None:
+    # Raw stdin must be UTF-8 encodable before load_config/db/lock.
+    monkeypatch.setattr(sys, "stdin", StringIO(bad_raw))
+    code = cli.main(["graph-ingest"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert code == 2
+    assert captured.err == ""
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid_argument"
+    assert "UTF-8" in payload["message"] or "utf-8" in payload["message"].lower()
+    _assert_no_storage_artifacts(tmp_path)
+
+
+def test_graph_ingest_rejects_escaped_lone_surrogate_in_domain_tags_list_with_no_storage_artifacts(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Group C / Cycle 109: domain_tags as a list with an escaped lone surrogate.
+    # str(list) masks the surrogate via repr; validation must walk nested strings
+    # and return invalid_argument before load_config/db/lock (home stays empty).
+    bad = "\udc80"
+    payload_in = json.dumps(
+        {"nodes": [{"id": "n1", "content": "ok", "domain_tags": [bad]}], "edges": []},
+        ensure_ascii=True,
+    )
+    assert "\\udc80" in payload_in  # escaped form on the wire
+    monkeypatch.setattr(sys, "stdin", StringIO(payload_in))
+    code = cli.main(["graph-ingest"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert code == 2
+    assert captured.err == ""
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid_argument"
+    assert "UTF-8" in payload["message"] or "utf-8" in payload["message"].lower()
+    _assert_no_storage_artifacts(tmp_path)

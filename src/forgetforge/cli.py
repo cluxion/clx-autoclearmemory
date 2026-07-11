@@ -280,13 +280,47 @@ def _recall(args: argparse.Namespace) -> int:
         return _storage_error(e)
 
 
+def _validate_graph_ingest_payload_text(payload: object) -> None:
+    """Ensure parsed payload text is UTF-8 encodable (empty allowed).
+
+    Walk actual string leaves only — never str(container), which masks lone
+    surrogates via list/dict repr. Non-string scalars are ignored because type
+    checks live elsewhere.
+    """
+
+    def _walk(value: object, field: str) -> None:
+        if isinstance(value, str):
+            store._require_utf8_encodable(value, field)
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                _walk(item, f"{field}[{i}]")
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                store._require_utf8_encodable(k, f"{field}.key")
+                _walk(v, f"{field}.{k}")
+
+    _walk(payload, "payload")
+
+
 def _graph_ingest(args: argparse.Namespace) -> int:
     try:
         try:
             # ValueError covers JSONDecodeError and UnicodeDecodeError (bad UTF-8
             # stdin); RecursionError comes from pathologically nested JSON.
-            payload = json.loads(sys.stdin.read().strip() or "{}")
-        except (ValueError, RecursionError) as e:
+            raw = sys.stdin.read()
+        except (ValueError, UnicodeError) as e:
+            return _usage_error(f"invalid JSON on stdin: {e}")
+        # Raw blob + parsed text must be UTF-8 encodable before load_config/db/lock.
+        try:
+            store._require_utf8_encodable(raw, "stdin")
+            payload = json.loads(raw.strip() or "{}")
+            _validate_graph_ingest_payload_text(payload)
+        except RecursionError as e:
+            return _usage_error(f"invalid JSON on stdin: {e}")
+        except ValueError as e:
+            msg = str(e)
+            if "UTF-8 encodable" in msg:
+                return _usage_error(msg)
             return _usage_error(f"invalid JSON on stdin: {e}")
         nodes = payload.get("nodes", []) if isinstance(payload, dict) else []
         edges = payload.get("edges", []) if isinstance(payload, dict) else []
@@ -343,18 +377,35 @@ def _graph_expire_session(args: argparse.Namespace) -> int:
 def _store(args: argparse.Namespace) -> int:
     try:
         content = _read_text_argument("content", args.content, args.content_file)
+        # Pure-validate before any config/DB connection (no partial home init on bad input).
+        memory_id = store._normalize_required_text(str(args.memory_id), "memory_id")
+        content = store._normalize_required_text(content, "content")
+        session_id = args.session_id
+        if session_id is not None:
+            session_id = store._normalize_required_text(str(session_id), "session_id")
+        importance = float(args.importance)
+        frequency = float(args.frequency)
+        store._require_finite_score("importance", importance)
+        store._require_finite_score("frequency", frequency)
+        expire_days = int(args.expire_days) if args.expire_days is not None else None
+        if expire_days is not None and expire_days < 0:
+            raise ValueError("expire_days must be >= 0")
+        node_type = args.node_type
+        if node_type is not None and node_type not in graph.VALID_NODE_TYPES:
+            valid = ", ".join(sorted(graph.VALID_NODE_TYPES))
+            raise ValueError(f"invalid node_type: {node_type} (valid: {valid})")
         cfg = load_config()
         with closing(db.connect(cfg.db_path)) as conn:
             stored = store.store_memory(
                 conn,
-                memory_id=str(args.memory_id),
+                memory_id=memory_id,
                 content=content,
-                importance=float(args.importance),
-                frequency=float(args.frequency),
+                importance=importance,
+                frequency=frequency,
                 is_procedural=bool(args.procedural),
-                node_type=args.node_type,
-                expire_days=int(args.expire_days) if args.expire_days is not None else None,
-                session_id=args.session_id,
+                node_type=node_type,
+                expire_days=expire_days,
+                session_id=session_id,
             )
         print(json.dumps({"ok": True, "stored": stored}, ensure_ascii=False, indent=2))
         return 0
