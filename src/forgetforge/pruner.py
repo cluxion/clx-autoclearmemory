@@ -1,13 +1,57 @@
 from __future__ import annotations
 
+import contextlib
+import errno
 import fcntl
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from forgetforge import archive, db, graph, recall, rust_bridge
 from forgetforge.config import ForgetForgeConfig, load_config
+
+
+def acquire_pruner_lock(home: Path) -> int | None:
+    """Nonblocking exclusive lock on ``home/.pruner.lock``.
+
+    Returns the open lock fd on success, or ``None`` if another process holds it.
+    Caller must ``release_pruner_lock`` on every path (including exceptions).
+    """
+    lock_path = home / ".pruner.lock"
+    home.mkdir(parents=True, exist_ok=True)
+    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            os.close(lock_fd)
+        if exc.errno in {errno.EACCES, errno.EAGAIN}:
+            return None
+        raise
+    return lock_fd
+
+
+def release_pruner_lock(lock_fd: int) -> None:
+    """Close a lock fd; close releases flock without a second fallible unlock step."""
+    with contextlib.suppress(OSError):
+        os.close(lock_fd)
+
+
+def pruner_already_running_payload(lock_path: Path) -> dict[str, Any]:
+    """Structured conflict contract shared by daemon, one-shot prune, and graph-ingest."""
+    return {
+        "ok": False,
+        "error": "pruner_already_running",
+        "message": f"another pruner holds {lock_path}",
+    }
+
+
+def emit_pruner_already_running(lock_path: Path) -> int:
+    """Print the conflict JSON and return exit code 1."""
+    print(json.dumps(pruner_already_running_payload(lock_path), ensure_ascii=False), flush=True)
+    return 1
 
 
 def run_pruner(conn, config: ForgetForgeConfig | None = None) -> dict[str, Any]:
@@ -103,29 +147,15 @@ def run_pruner_daemon(*, interval_hours: int | None = None, run_once: bool = Fal
     cfg = load_config()
     # Two concurrent pruners race on the archive files (JSONL/Parquet appends),
     # so the daemon holds an exclusive home-dir lock for its lifetime.
-    lock_path = cfg.home / ".pruner.lock"
-    cfg.home.mkdir(parents=True, exist_ok=True)
-    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        os.close(lock_fd)
-        print(
-            json.dumps(
-                {"ok": False, "error": "pruner_already_running", "message": f"another pruner holds {lock_path}"},
-                ensure_ascii=False,
-            ),
-            flush=True,
-        )
-        return 1
+    # Same .pruner.lock is shared with one-shot prune and graph-ingest (single-flight).
+    lock_fd = acquire_pruner_lock(cfg.home)
+    if lock_fd is None:
+        return emit_pruner_already_running(cfg.home / ".pruner.lock")
     try:
         _run_pruner_cycles(cfg, interval_hours=interval_hours, run_once=run_once, max_cycles=max_cycles)
         return 0
     finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(lock_fd)
+        release_pruner_lock(lock_fd)
 
 
 def _run_pruner_cycles(cfg: ForgetForgeConfig, *, interval_hours: int | None, run_once: bool, max_cycles: int) -> None:
@@ -151,4 +181,11 @@ def _run_pruner_cycles(cfg: ForgetForgeConfig, *, interval_hours: int | None, ru
         time.sleep(seconds)
 
 
-__all__ = ["run_pruner", "run_pruner_daemon"]
+__all__ = [
+    "acquire_pruner_lock",
+    "emit_pruner_already_running",
+    "pruner_already_running_payload",
+    "release_pruner_lock",
+    "run_pruner",
+    "run_pruner_daemon",
+]

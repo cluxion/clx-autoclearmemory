@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cluxion-Agentplugin-AutoClearMemory"
-version = "0.3.44"
+version = "0.3.45"
 description = "Universal agent memory plugin (ForgetForge): recall-centric retention, tiered forgetting, Rust scoring engine for Hermes, Claude Code, and Codex."
 readme = "README.md"
 requires-python = ">=3.11"

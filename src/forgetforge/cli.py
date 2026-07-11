@@ -295,10 +295,17 @@ def _graph_ingest(args: argparse.Namespace) -> int:
         if not isinstance(edges, list):
             edges = []
         cfg = load_config()
-        with closing(db.connect(cfg.db_path)) as conn:
-            result = graph.ingest(conn, nodes, edges)
-        print(json.dumps({"ok": True, **result}, ensure_ascii=False))
-        return 0
+        # Single-flight with pruner/daemon: hold .pruner.lock for full mutation lifetime.
+        lock_fd = pruner.acquire_pruner_lock(cfg.home)
+        if lock_fd is None:
+            return pruner.emit_pruner_already_running(cfg.home / ".pruner.lock")
+        try:
+            with closing(db.connect(cfg.db_path)) as conn:
+                result = graph.ingest(conn, nodes, edges)
+            print(json.dumps({"ok": True, **result}, ensure_ascii=False))
+            return 0
+        finally:
+            pruner.release_pruner_lock(lock_fd)
     except (sqlite3.Error, OSError) as e:
         return _storage_error(e)
 
@@ -495,10 +502,17 @@ def _list_forgotten(args: argparse.Namespace) -> int:
 def _prune() -> int:
     try:
         cfg = load_config()
-        with closing(db.connect(cfg.db_path)) as conn:
-            result = pruner.run_pruner(conn, config=cfg)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
+        # Single-flight with daemon/graph-ingest: acquire before DB/archive mutation.
+        lock_fd = pruner.acquire_pruner_lock(cfg.home)
+        if lock_fd is None:
+            return pruner.emit_pruner_already_running(cfg.home / ".pruner.lock")
+        try:
+            with closing(db.connect(cfg.db_path)) as conn:
+                result = pruner.run_pruner(conn, config=cfg)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        finally:
+            pruner.release_pruner_lock(lock_fd)
     except (sqlite3.Error, OSError) as e:
         return _storage_error(e)
 
